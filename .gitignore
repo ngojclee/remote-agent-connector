@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 runtime/
+build/
+dist/
+*.egg-info/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
