@@ -9,7 +9,7 @@ Business MCP Hub -> remote-agent-mcp-connector (/mcp)
                  -> client Remote Agent Connector
 ```
 
-The connector service exposes 21 typed tools through Streamable HTTP MCP. It
+The connector service exposes 23 typed tools through Streamable HTTP MCP. It
 also has a dedicated `/relay` endpoint for device WebSocket connections and a
 SQLite device registry for capabilities, health, connection state, and
 revocation.
@@ -61,5 +61,20 @@ skills_health
 connector_restart_mcp
 ```
 
-The Hub namespaces these as `remote_agent__<tool_name>`. The agy2api side can
-map them to `agy_connector.<tool_name>` profiles without changing the Hub.
+The Hub exposes these as `agy_connector__<tool_name>`, which matches the
+`agy_connector.*` tool contract used by agy2api. The connector id, audience,
+service name, and environment variables stay `remote-agent` /
+`REMOTE_AGENT_*`; only the MCP namespace carries the consumer-facing prefix.
+
+## Images
+
+`publish-ghcr.yml` builds and pushes both production images to GHCR:
+
+```text
+ghcr.io/ngojclee/remote-agent-connector:latest      # /mcp connector
+ghcr.io/ngojclee/remote-agent-connector:relay-latest # TLS WSS relay front
+```
+
+The relay image bakes `deploy/remote-agent-relay.nginx.conf`; only the TLS
+certificate and key are mounted at runtime. Migrations install inside the
+Python package, so no build tree needs to be bind-mounted into the container.

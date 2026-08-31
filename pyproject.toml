@@ -24,3 +24,12 @@ remote-agent-connector = "remote_agent_connector.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["remote_agent_connector*"]
+
+# Migrations are read at runtime from the installed package directory, so they
+# must ship inside the wheel/image instead of being bind-mounted from a build
+# tree.
+[tool.setuptools.package-data]
+remote_agent_connector = ["migrations/**/*.sql", "migrations/*.sql"]
+
+[tool.setuptools]
+include-package-data = true
