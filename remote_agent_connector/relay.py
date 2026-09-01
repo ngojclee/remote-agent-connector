@@ -106,18 +106,20 @@ class AgentRelayEndpoint:
             await websocket.send_json(first_challenge)
             message = await self._receive_message(websocket)
             if message.get("type") == "enroll":
+                required = {
+                    "v",
+                    "type",
+                    "challenge_id",
+                    "challenge",
+                    "connector_id",
+                    "enrollment_token",
+                    "public_key",
+                    "signature",
+                }
                 self._require_keys(
                     message,
-                    {
-                        "v",
-                        "type",
-                        "challenge_id",
-                        "challenge",
-                        "connector_id",
-                        "enrollment_token",
-                        "public_key",
-                        "signature",
-                    },
+                    required,
+                    allow_optional={"platform"},
                 )
                 if message["v"] != PROTOCOL_VERSION:
                     raise ProtocolError(
@@ -130,6 +132,7 @@ class AgentRelayEndpoint:
                     enrollment_token=message["enrollment_token"],
                     public_key=message["public_key"],
                     signature=message["signature"],
+                    platform=str(message.get("platform") or "unknown"),
                 )
                 await websocket.send_json(
                     {
@@ -315,8 +318,14 @@ class AgentRelayEndpoint:
         return value
 
     @staticmethod
-    def _require_keys(value: dict[str, Any], required: set[str]) -> None:
-        if set(value) != required:
+    def _require_keys(
+        value: dict[str, Any],
+        required: set[str],
+        *,
+        allow_optional: set[str] | None = None,
+    ) -> None:
+        optional = allow_optional or set()
+        if not required.issubset(value) or set(value) - required - optional:
             raise ProtocolError("relay message contains unsupported fields")
 
     @staticmethod

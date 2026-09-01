@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from starlette.testclient import TestClient
@@ -15,6 +17,7 @@ from remote_agent_connector.store import RemoteAgentStore
 class RemoteAgentEndpointTests(unittest.TestCase):
     def test_mcp_catalog_is_typed_and_closed(self):
         temp_dir = tempfile.TemporaryDirectory()
+        store = None
         try:
             config = RemoteAgentConfig(
                 database_url=f"sqlite:///{Path(temp_dir.name) / 'remote-agent.sqlite'}",
@@ -62,6 +65,152 @@ class RemoteAgentEndpointTests(unittest.TestCase):
                     "connector_restart_mcp",
                 },
             )
+            for tool in tools:
+                properties = tool.inputSchema.get("properties", {})
+                required = tool.inputSchema.get("required", [])
+                self.assertIn("profile_id", properties, tool.name)
+                self.assertIn("profile_id", required, tool.name)
+                self.assertNotIn("connector_id", properties, tool.name)
         finally:
-            store.close()
+            if store is not None:
+                store.close()
+            temp_dir.cleanup()
+
+    def test_legacy_database_bootstraps_migration_history(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        store = None
+        try:
+            database_path = Path(temp_dir.name) / "legacy.sqlite"
+            initial_sql = (
+                Path(__file__).resolve().parents[1]
+                / "remote_agent_connector"
+                / "migrations"
+                / "sqlite"
+                / "001_initial.sql"
+            ).read_text(encoding="utf-8")
+            connection = sqlite3.connect(database_path)
+            connection.executescript(initial_sql)
+            connection.close()
+
+            store = RemoteAgentStore(f"sqlite:///{database_path}")
+            columns = {
+                row[1]
+                for row in store._connection.execute(
+                    "PRAGMA table_info(remote_agent_devices)"
+                ).fetchall()
+            }
+            self.assertIn("platform", columns)
+            versions = {
+                row[0]
+                for row in store._connection.execute(
+                    "SELECT version FROM schema_migrations"
+                ).fetchall()
+            }
+            self.assertEqual(
+                versions,
+                {"001_initial.sql", "002_platform.sql"},
+            )
+        finally:
+            if store is not None:
+                store.close()
+            temp_dir.cleanup()
+
+    def test_authenticated_agents_returns_sanitized_online_devices(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        store = None
+        try:
+            config = RemoteAgentConfig(
+                database_url=f"sqlite:///{Path(temp_dir.name) / 'remote-agent.sqlite'}",
+                mcp_bearer_token="m" * 48,
+                hub_delegation_secret="d" * 48,
+                operator_bearer_token="o" * 48,
+                hub_audience="remote-agent-connector",
+                private_mcp_url="http://127.0.0.1:3030/mcp",
+                bind_host="127.0.0.1",
+                bind_port=3030,
+                allowed_hosts=("127.0.0.1:3030", "localhost:3030"),
+                allow_insecure_private_mcp=True,
+                trust_proxy_tls=False,
+                request_timeout_seconds=2,
+                heartbeat_timeout_seconds=30,
+            )
+            store = RemoteAgentStore(config.database_url)
+            now = datetime.now(timezone.utc)
+            self.assertTrue(
+                store.enroll_device(
+                    connector_id="windows-01",
+                    public_key="public-key-not-returned",
+                    display_label="Windows 01",
+                    capability_profile="read_only",
+                    platform="Windows 11",
+                    now=now,
+                )
+            )
+            self.assertTrue(
+                store.upsert_presence(
+                    connector_id="windows-01",
+                    instance_id="instance-01",
+                    connection_generation="generation-01",
+                    context_epoch=1,
+                    capabilities=(
+                        "connector_health",
+                        "files_list",
+                        "files_read",
+                    ),
+                    now=now,
+                )
+            )
+            app = create_app(config, store)
+            with TestClient(app) as client:
+                request_headers = {"Host": "localhost:3030"}
+                unauthorized = client.get(
+                    "/agents",
+                    headers=request_headers,
+                )
+                self.assertEqual(unauthorized.status_code, 401)
+
+                response = client.get(
+                    "/agents",
+                    headers={
+                        **request_headers,
+                        "Authorization": "Bearer "
+                        + config.operator_bearer_token
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertEqual(payload["count"], 1)
+                self.assertEqual(
+                    set(payload["agents"][0]),
+                    {
+                        "device_id",
+                        "platform",
+                        "capabilities",
+                        "health",
+                        "connected_at",
+                    },
+                )
+                self.assertEqual(
+                    payload["agents"][0]["device_id"],
+                    "windows-01",
+                )
+                self.assertEqual(
+                    payload["agents"][0]["platform"],
+                    "Windows 11",
+                )
+                self.assertEqual(
+                    payload["agents"][0]["health"],
+                    "online",
+                )
+                self.assertNotIn(
+                    "public_key",
+                    payload["agents"][0],
+                )
+                self.assertNotIn(
+                    "enrollment_token",
+                    payload["agents"][0],
+                )
+        finally:
+            if store is not None:
+                store.close()
             temp_dir.cleanup()

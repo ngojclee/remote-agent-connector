@@ -66,6 +66,36 @@ The Hub exposes these as `agy_connector__<tool_name>`, which matches the
 service name, and environment variables stay `remote-agent` /
 `REMOTE_AGENT_*`; only the MCP namespace carries the consumer-facing prefix.
 
+## Authenticated agent status
+
+The connector exposes an operator-only status route:
+
+```text
+GET http://remote-agent-mcp-connector:3030/agents
+Authorization: Bearer <REMOTE_AGENT_OPERATOR_BEARER_TOKEN>
+```
+
+It returns only enrolled devices with a fresh online relay instance. Stale
+instances are marked offline before the response. Each entry is sanitized to
+`device_id`, `platform`, `capabilities`, `health`, and
+`connected_at`; public keys, enrollment tokens, relay signatures, and
+filesystem paths are never returned.
+
+For all 23 MCP tools, agy2api passes the selected `device_id` as
+`profile_id`. The connector resolves that value as the exact enrolled device
+and optionally accepts `instance_id` to pin one live process. The capability
+tier (`read_only`, `read_write`, or `full_agent`) is separate from
+`profile_id`.
+
+The public WSS endpoint is separate from MCP:
+
+```text
+wss://10.21.4.101:3051/relay
+```
+
+MCP remains authenticated Streamable HTTP at `/mcp`; WSS is only for device
+relay traffic and is not a generic MCP-over-WebSocket transport.
+
 ## Images
 
 `publish-ghcr.yml` builds and pushes both production images to GHCR:

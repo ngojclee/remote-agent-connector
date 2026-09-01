@@ -92,16 +92,53 @@ class RemoteAgentStore:
                 "Remote Agent migration directory is missing"
             )
         with self.transaction():
-            applied = set()
-            if (migrations_dir / "001_initial.sql").exists():
-                applied.add("001_initial.sql")
+            self._execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL
+                )
+                """
+            )
+            applied = {
+                row["version"]
+                for row in self._connection.execute(
+                    "SELECT version FROM schema_migrations"
+                ).fetchall()
+            }
+            # Releases before 0.1.1 created the initial schema without a
+            # schema_migrations row. Bootstrap that one known legacy state so
+            # the additive migrations can run without replaying CREATE TABLE.
+            if not applied:
+                initial_schema = self._connection.execute(
+                    """
+                    SELECT 1
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                      AND name = 'remote_agent_devices'
+                    """
+                ).fetchone()
+                if initial_schema is not None:
+                    self._execute(
+                        """
+                        INSERT INTO schema_migrations(version, applied_at)
+                        VALUES ('001_initial.sql', CURRENT_TIMESTAMP)
+                        """
+                    )
+                    applied.add("001_initial.sql")
             for path in sorted(migrations_dir.glob("*.sql")):
                 if path.name in applied:
                     continue
                 script = path.read_text(encoding="utf-8")
                 for statement in _split_statements(script):
                     self._execute(statement)
-                applied.add(path.name)
+                self._execute(
+                    """
+                    INSERT INTO schema_migrations(version, applied_at)
+                    VALUES (?, CURRENT_TIMESTAMP)
+                    """,
+                    (path.name,),
+                )
 
     def issue_enrollment_token(
         self,
@@ -235,6 +272,7 @@ class RemoteAgentStore:
         display_label: str,
         capability_profile: str,
         now: datetime,
+        platform: str = "unknown",
     ) -> bool:
         current = as_timestamp(now)
         capabilities = capabilities_for_profile(capability_profile)
@@ -255,8 +293,8 @@ class RemoteAgentStore:
                 INSERT INTO remote_agent_devices (
                     connector_id, public_key, display_label,
                     capability_profile, capabilities_json,
-                    enrollment_state, enrolled_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'enrolled', ?, ?)
+                    platform, enrollment_state, enrolled_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'enrolled', ?, ?)
                 """,
                 (
                     connector_id,
@@ -264,6 +302,7 @@ class RemoteAgentStore:
                     display_label,
                     capability_profile,
                     capabilities_json,
+                    platform,
                     current,
                     current,
                 ),
@@ -275,7 +314,7 @@ class RemoteAgentStore:
             """
             SELECT connector_id, public_key, display_label,
                    capability_profile, capabilities_json, enrollment_state,
-                   enrolled_at, revoked_at, updated_at
+                   platform, enrolled_at, revoked_at, updated_at
             FROM remote_agent_devices
             WHERE connector_id = ?
             """,
@@ -286,7 +325,7 @@ class RemoteAgentStore:
         return self._fetchall(
             """
             SELECT connector_id, display_label, capability_profile,
-                   capabilities_json, enrollment_state, enrolled_at,
+                   capabilities_json, platform, enrollment_state, enrolled_at,
                    revoked_at, updated_at
             FROM remote_agent_devices
             ORDER BY display_label, connector_id
@@ -502,6 +541,29 @@ class RemoteAgentStore:
             LIMIT 1
             """,
             (connector_id,),
+        )
+
+    def online_agents(
+        self,
+        *,
+        stale_before: datetime,
+    ) -> list[dict[str, Any]]:
+        self.mark_stale_instances(stale_before=stale_before)
+        return self._fetchall(
+            """
+            SELECT d.connector_id AS device_id,
+                   d.platform,
+                   d.capability_profile,
+                   d.capabilities_json,
+                   i.connected_at,
+                   i.last_heartbeat_at
+            FROM remote_agent_devices AS d
+            JOIN live_instances AS i
+              ON i.connector_id = d.connector_id
+             AND i.state = 'online'
+            WHERE d.enrollment_state = 'enrolled'
+            ORDER BY d.connector_id, i.last_heartbeat_at DESC
+            """
         )
 
     def claim_request(

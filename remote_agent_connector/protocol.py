@@ -23,6 +23,7 @@ INSTANCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
 SCOPE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._*-]{0,63}$")
 DISPLAY_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9 ._()#-]{1,80}$")
+PLATFORM_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._()#:/-]{0,63}$")
 PROTOCOL_VERSION = 1
 RELAY_MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 RESULT_MAX_BYTES = 1 * 1024 * 1024
@@ -154,6 +155,13 @@ def validate_display_label(value: Any) -> str:
     if not DISPLAY_LABEL_PATTERN.fullmatch(label):
         raise ProtocolError("display_label is invalid")
     return label
+
+
+def validate_platform(value: Any) -> str:
+    platform = str(value or "").strip()
+    if not platform or not PLATFORM_PATTERN.fullmatch(platform):
+        raise ProtocolError("platform is invalid")
+    return platform
 
 
 def validate_capability_profile(value: Any) -> str:

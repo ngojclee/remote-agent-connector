@@ -140,14 +140,14 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def connector_health(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Return connector health and platform metadata."""
         return call_agent(
             tool="connector.health",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -156,7 +156,7 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def files_list(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -166,7 +166,7 @@ def create_app(
         """List approved files in a virtual root."""
         return call_agent(
             tool="files.list",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path, "pattern": pattern},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -175,7 +175,7 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def files_stat(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -184,7 +184,7 @@ def create_app(
         """Return file metadata without content."""
         return call_agent(
             tool="files.stat",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -193,7 +193,7 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def files_search(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -204,7 +204,7 @@ def create_app(
         """Search inside approved files."""
         return call_agent(
             tool="files.search",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path, "query": query, "limit": limit},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -213,7 +213,7 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def files_read(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -225,7 +225,7 @@ def create_app(
         """Read bounded content from an approved file."""
         return call_agent(
             tool="files.read",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "root": root,
                 "path": path,
@@ -240,7 +240,7 @@ def create_app(
 
     @server.tool(annotations=WRITE)
     async def files_write(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -251,7 +251,7 @@ def create_app(
         """Write bounded content into an approved root."""
         return call_agent(
             tool="files.write",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "root": root,
                 "path": path,
@@ -265,7 +265,7 @@ def create_app(
 
     @server.tool(annotations=WRITE)
     async def files_delete(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -274,7 +274,7 @@ def create_app(
         """Delete an approved file or empty directory."""
         return call_agent(
             tool="files.delete",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -283,7 +283,7 @@ def create_app(
 
     @server.tool(annotations=WRITE)
     async def files_move(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -293,7 +293,7 @@ def create_app(
         """Move an approved file within the same virtual root."""
         return call_agent(
             tool="files.move",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path, "destination": destination},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -302,7 +302,7 @@ def create_app(
 
     @server.tool(annotations=WRITE)
     async def files_mkdir(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -311,7 +311,7 @@ def create_app(
         """Create a directory in an approved root."""
         return call_agent(
             tool="files.mkdir",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -320,7 +320,7 @@ def create_app(
 
     @server.tool(annotations=WRITE)
     async def files_upload(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -330,7 +330,7 @@ def create_app(
         """Upload bounded binary content into an approved root."""
         return call_agent(
             tool="files.upload",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "root": root,
                 "path": path,
@@ -343,7 +343,7 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def files_download(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         path: str,
@@ -352,7 +352,7 @@ def create_app(
         """Download bounded binary content from an approved root."""
         return call_agent(
             tool="files.download",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"root": root, "path": path},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -361,7 +361,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def terminal_execute(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         command: str,
@@ -372,7 +372,7 @@ def create_app(
         """Execute an allowlisted command on the remote agent."""
         return call_agent(
             tool="terminal.execute",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "root": root,
                 "command": command,
@@ -386,7 +386,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def terminal_stream(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         command: str,
@@ -397,7 +397,7 @@ def create_app(
         """Start a bounded command stream on the remote agent."""
         return call_agent(
             tool="terminal.stream",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "root": root,
                 "command": command,
@@ -411,7 +411,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def ssh_execute(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         root: str,
         host: str,
@@ -422,7 +422,7 @@ def create_app(
         """Execute a command through an approved SSH profile."""
         return call_agent(
             tool="ssh.execute",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "root": root,
                 "host": host,
@@ -436,14 +436,14 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def ssh_list_profiles(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved SSH profiles on the device."""
         return call_agent(
             tool="ssh.list_profiles",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -452,14 +452,14 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def skills_list(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved client skills."""
         return call_agent(
             tool="skills.list",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -468,7 +468,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def skills_materialize(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         skill_id: str,
         target_root: str,
@@ -477,7 +477,7 @@ def create_app(
         """Materialize approved instruction and reference files."""
         return call_agent(
             tool="skills.materialize",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"skill_id": skill_id, "target_root": target_root},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -486,7 +486,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def skills_execute(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         skill_id: str,
         arguments: dict[str, Any] | None = None,
@@ -495,7 +495,7 @@ def create_app(
         """Execute an approved client skill through typed tools."""
         return call_agent(
             tool="skills.execute",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"skill_id": skill_id, "arguments": arguments or {}},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -504,14 +504,14 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def mcp_list_servers(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved local MCP servers."""
         return call_agent(
             tool="mcp.list_servers",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -520,7 +520,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def mcp_call(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         server_id: str,
         tool_name: str,
@@ -530,7 +530,7 @@ def create_app(
         """Call an approved tool on a local MCP server."""
         return call_agent(
             tool="mcp.call",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={
                 "server_id": server_id,
                 "tool_name": tool_name,
@@ -543,7 +543,7 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def mcp_health(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         server_id: str | None = None,
         instance_id: str | None = None,
@@ -551,7 +551,7 @@ def create_app(
         """Return local MCP server health."""
         return call_agent(
             tool="mcp.health",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"server_id": server_id},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -560,14 +560,14 @@ def create_app(
 
     @server.tool(annotations=READ_ONLY)
     async def skills_health(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Return client skill health."""
         return call_agent(
             tool="skills.health",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -576,7 +576,7 @@ def create_app(
 
     @server.tool(annotations=CONTROL)
     async def connector_restart_mcp(
-        connector_id: str,
+        profile_id: str,
         idempotency_key: str,
         server_id: str,
         instance_id: str | None = None,
@@ -584,7 +584,7 @@ def create_app(
         """Restart one approved local MCP server."""
         return call_agent(
             tool="connector.restart_mcp",
-            connector_id=connector_id,
+            connector_id=profile_id,
             arguments={"server_id": server_id},
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
@@ -682,6 +682,11 @@ def create_app(
             return JSONResponse({"code": "unauthorized"}, status_code=401)
         return JSONResponse(service.operator_devices())
 
+    async def list_agents(request: Request) -> JSONResponse:
+        if not operator_authorized(request):
+            return JSONResponse({"code": "unauthorized"}, status_code=401)
+        return JSONResponse(service.online_agents())
+
     async def operator_audit(request: Request) -> JSONResponse:
         if not operator_authorized(request):
             return JSONResponse({"code": "unauthorized"}, status_code=401)
@@ -708,6 +713,7 @@ def create_app(
             Route("/operator/devices/{connector_id}", rename_device, methods=["PUT"]),
             Route("/operator/devices/{connector_id}", delete_device, methods=["DELETE"]),
             Route("/operator/devices", list_devices, methods=["GET"]),
+            Route("/agents", list_agents, methods=["GET"]),
             Route("/operator/audit", operator_audit, methods=["GET"]),
             WebSocketRoute("/relay", relay_endpoint),
             Mount("/", app=mcp_app),

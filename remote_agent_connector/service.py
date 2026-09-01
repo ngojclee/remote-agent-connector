@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from .config import RemoteAgentConfig
@@ -74,15 +75,18 @@ class RemoteAgentService:
         enrollment_token: str,
         public_key: str,
         signature: str,
+        platform: str = "unknown",
     ) -> dict[str, Any]:
         from .protocol import (
             enrollment_payload,
             parse_connector_id,
             parse_public_key,
+            validate_platform,
             verify_ed25519,
         )
 
         now = self.clock()
+        platform = validate_platform(platform)
         token_record = self.store.consume_enrollment_token(
             raw_token=enrollment_token,
             connector_id=connector_id,
@@ -117,6 +121,7 @@ class RemoteAgentService:
             display_label=token_record["display_label"],
             capability_profile=token_record["capability_profile"],
             now=now,
+            platform=platform,
         )
         if not enrolled:
             raise AgentError("device_already_enrolled")
@@ -276,6 +281,27 @@ class RemoteAgentService:
             status = self.device_status(connector_id=device["connector_id"])
             devices.append(status)
         return {"devices": devices, "count": len(devices)}
+
+    def online_agents(self) -> dict[str, Any]:
+        rows = self.store.online_agents(
+            stale_before=self.clock()
+            - timedelta(seconds=self.config.heartbeat_timeout_seconds)
+        )
+        agents = []
+        for row in rows:
+            capabilities = json.loads(row["capabilities_json"] or "[]")
+            agents.append(
+                {
+                    "device_id": row["device_id"],
+                    "platform": row["platform"] or "unknown",
+                    "capabilities": (
+                        capabilities if isinstance(capabilities, list) else []
+                    ),
+                    "health": "online",
+                    "connected_at": row["connected_at"],
+                }
+            )
+        return {"agents": agents, "count": len(agents)}
 
     def revoke_device(self, *, connector_id: str) -> dict[str, Any]:
         if not self.store.revoke_device(connector_id=connector_id, now=self.clock()):
