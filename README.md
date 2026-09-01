@@ -14,6 +14,10 @@ also has a dedicated `/relay` endpoint for device WebSocket connections and a
 SQLite device registry for capabilities, health, connection state, and
 revocation.
 
+Every tool handler is asynchronous and awaits the inner device command before
+returning a JSON-ready object. MCP clients therefore receive a normal result or
+MCP error envelope, never an unresolved coroutine.
+
 ## Required environment variables
 
 ```text
