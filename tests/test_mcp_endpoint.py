@@ -71,6 +71,45 @@ class RemoteAgentEndpointTests(unittest.TestCase):
                 self.assertIn("profile_id", properties, tool.name)
                 self.assertIn("profile_id", required, tool.name)
                 self.assertNotIn("connector_id", properties, tool.name)
+            tool_manager = app.state.mcp_server._tool_manager
+            registered = tool_manager._tools
+            self.assertEqual(
+                set(registered),
+                {
+                    "connector_health",
+                    "files_list",
+                    "files_stat",
+                    "files_search",
+                    "files_read",
+                    "files_write",
+                    "files_delete",
+                    "files_move",
+                    "files_mkdir",
+                    "files_upload",
+                    "files_download",
+                    "terminal_execute",
+                    "terminal_stream",
+                    "ssh_execute",
+                    "ssh_list_profiles",
+                    "skills_list",
+                    "skills_materialize",
+                    "skills_execute",
+                    "mcp_list_servers",
+                    "mcp_call",
+                    "mcp_health",
+                    "skills_health",
+                    "connector_restart_mcp",
+                },
+            )
+            # Every handler must await the inner agent call. A sync handler
+            # that returns the coroutine leaks "<coroutine object>" to MCP
+            # clients instead of a dict result.
+            non_async = [
+                name
+                for name, tool in registered.items()
+                if not getattr(tool, "is_async", False)
+            ]
+            self.assertEqual(non_async, [])
         finally:
             if store is not None:
                 store.close()

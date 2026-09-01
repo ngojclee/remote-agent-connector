@@ -117,7 +117,7 @@ def create_app(
         except Exception as exc:
             raise ToolError("delegation_invalid") from None
 
-    def call_agent(
+    async def call_agent(
         *,
         tool: str,
         connector_id: str,
@@ -127,7 +127,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> Any:
         try:
-            return service.device_command(
+            return await service.device_command(
                 identity=identity,
                 tool=tool,
                 connector_id=connector_id,
@@ -145,7 +145,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Return connector health and platform metadata."""
-        return call_agent(
+        return await call_agent(
             tool="connector.health",
             connector_id=profile_id,
             arguments={},
@@ -164,7 +164,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved files in a virtual root."""
-        return call_agent(
+        return await call_agent(
             tool="files.list",
             connector_id=profile_id,
             arguments={"root": root, "path": path, "pattern": pattern},
@@ -182,7 +182,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Return file metadata without content."""
-        return call_agent(
+        return await call_agent(
             tool="files.stat",
             connector_id=profile_id,
             arguments={"root": root, "path": path},
@@ -202,7 +202,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Search inside approved files."""
-        return call_agent(
+        return await call_agent(
             tool="files.search",
             connector_id=profile_id,
             arguments={"root": root, "path": path, "query": query, "limit": limit},
@@ -223,7 +223,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Read bounded content from an approved file."""
-        return call_agent(
+        return await call_agent(
             tool="files.read",
             connector_id=profile_id,
             arguments={
@@ -249,7 +249,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Write bounded content into an approved root."""
-        return call_agent(
+        return await call_agent(
             tool="files.write",
             connector_id=profile_id,
             arguments={
@@ -272,7 +272,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Delete an approved file or empty directory."""
-        return call_agent(
+        return await call_agent(
             tool="files.delete",
             connector_id=profile_id,
             arguments={"root": root, "path": path},
@@ -291,7 +291,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Move an approved file within the same virtual root."""
-        return call_agent(
+        return await call_agent(
             tool="files.move",
             connector_id=profile_id,
             arguments={"root": root, "path": path, "destination": destination},
@@ -309,7 +309,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Create a directory in an approved root."""
-        return call_agent(
+        return await call_agent(
             tool="files.mkdir",
             connector_id=profile_id,
             arguments={"root": root, "path": path},
@@ -328,7 +328,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Upload bounded binary content into an approved root."""
-        return call_agent(
+        return await call_agent(
             tool="files.upload",
             connector_id=profile_id,
             arguments={
@@ -350,7 +350,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Download bounded binary content from an approved root."""
-        return call_agent(
+        return await call_agent(
             tool="files.download",
             connector_id=profile_id,
             arguments={"root": root, "path": path},
@@ -370,7 +370,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute an allowlisted command on the remote agent."""
-        return call_agent(
+        return await call_agent(
             tool="terminal.execute",
             connector_id=profile_id,
             arguments={
@@ -395,7 +395,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Start a bounded command stream on the remote agent."""
-        return call_agent(
+        return await call_agent(
             tool="terminal.stream",
             connector_id=profile_id,
             arguments={
@@ -420,7 +420,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a command through an approved SSH profile."""
-        return call_agent(
+        return await call_agent(
             tool="ssh.execute",
             connector_id=profile_id,
             arguments={
@@ -441,7 +441,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved SSH profiles on the device."""
-        return call_agent(
+        return await call_agent(
             tool="ssh.list_profiles",
             connector_id=profile_id,
             arguments={},
@@ -457,7 +457,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved client skills."""
-        return call_agent(
+        return await call_agent(
             tool="skills.list",
             connector_id=profile_id,
             arguments={},
@@ -475,7 +475,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Materialize approved instruction and reference files."""
-        return call_agent(
+        return await call_agent(
             tool="skills.materialize",
             connector_id=profile_id,
             arguments={"skill_id": skill_id, "target_root": target_root},
@@ -493,7 +493,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute an approved client skill through typed tools."""
-        return call_agent(
+        return await call_agent(
             tool="skills.execute",
             connector_id=profile_id,
             arguments={"skill_id": skill_id, "arguments": arguments or {}},
@@ -509,7 +509,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """List approved local MCP servers."""
-        return call_agent(
+        return await call_agent(
             tool="mcp.list_servers",
             connector_id=profile_id,
             arguments={},
@@ -528,7 +528,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Call an approved tool on a local MCP server."""
-        return call_agent(
+        return await call_agent(
             tool="mcp.call",
             connector_id=profile_id,
             arguments={
@@ -549,7 +549,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Return local MCP server health."""
-        return call_agent(
+        return await call_agent(
             tool="mcp.health",
             connector_id=profile_id,
             arguments={"server_id": server_id},
@@ -565,7 +565,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Return client skill health."""
-        return call_agent(
+        return await call_agent(
             tool="skills.health",
             connector_id=profile_id,
             arguments={},
@@ -582,7 +582,7 @@ def create_app(
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Restart one approved local MCP server."""
-        return call_agent(
+        return await call_agent(
             tool="connector.restart_mcp",
             connector_id=profile_id,
             arguments={"server_id": server_id},
