@@ -108,3 +108,29 @@ ghcr.io/ngojclee/remote-agent-connector:relay-latest # TLS WSS relay front
 The relay image bakes `deploy/remote-agent-relay.nginx.conf`; only the TLS
 certificate and key are mounted at runtime. Migrations install inside the
 Python package, so no build tree needs to be bind-mounted into the container.
+
+## Windows pairing and revocation
+
+Pairing is operator-controlled and one-time:
+
+1. The operator calls `POST /operator/enrollment-tokens` with
+   `connector_id`, `capability_profile` (`read_only`, `read_write`, or
+   `full_agent`), `display_label`, and a short `expires_in_seconds` value.
+2. The Windows connector opens the outbound WSS
+   `wss://10.21.4.101:3051/relay`. The server sends a challenge. The client
+   generates its Ed25519 key locally and sends the signed `enroll` payload
+   containing the one-time enrollment token and its public key.
+3. The server consumes both token and challenge, stores only the public-key
+   identity and the approved capability profile, then issues a second
+   challenge for normal authenticated relay operation.
+4. The client signs the second challenge, receives `ready`, and sends
+   heartbeats. The MCP connector routes every tool call by the exact
+   `profile_id` supplied by agy2api, which is the enrolled device id.
+
+Enrollment tokens, private keys, signatures, and operator bearer values are
+never returned by `GET /agents` and must not be placed in logs or source
+control. To revoke a device, the operator calls
+`POST /operator/devices/{device_id}/revoke`; the connector immediately marks
+the device revoked and closes its live instance. A revoked record may be
+purged separately with `DELETE /operator/devices/{device_id}` after
+revocation has been verified.
