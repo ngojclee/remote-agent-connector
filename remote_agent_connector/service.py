@@ -263,6 +263,9 @@ class RemoteAgentService:
         return {
             "connector_id": connector_id,
             "display_label": device["display_label"],
+            "public_key_fingerprint": public_key_fingerprint(
+                device["public_key"]
+            ),
             "capability_profile": device["capability_profile"],
             "capabilities": capabilities,
             "enrollment_state": device["enrollment_state"],

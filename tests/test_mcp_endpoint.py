@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import sqlite3
 import tempfile
 import unittest
@@ -178,7 +179,9 @@ class RemoteAgentEndpointTests(unittest.TestCase):
             self.assertTrue(
                 store.enroll_device(
                     connector_id="windows-01",
-                    public_key="public-key-not-returned",
+                    public_key=base64.urlsafe_b64encode(
+                        b"k" * 32
+                    ).decode("ascii").rstrip("="),
                     display_label="Windows 01",
                     capability_profile="read_only",
                     platform="Windows 11",
@@ -249,7 +252,59 @@ class RemoteAgentEndpointTests(unittest.TestCase):
                     "enrollment_token",
                     payload["agents"][0],
                 )
+                operator_devices = client.get(
+                    "/operator/devices",
+                    headers={
+                        **request_headers,
+                        "Authorization": "Bearer "
+                        + config.operator_bearer_token
+                    },
+                )
+                self.assertEqual(operator_devices.status_code, 200)
+                device = operator_devices.json()["devices"][0]
+                self.assertRegex(
+                    device["public_key_fingerprint"],
+                    r"^[0-9a-f]{16}$",
+                )
+                self.assertNotIn("public_key", device)
+                self.assertNotIn("enrollment_token", device)
         finally:
             if store is not None:
                 store.close()
+            temp_dir.cleanup()
+
+    def test_relay_endpoint_is_asgi_callable_and_accepts_websocket(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        try:
+            config = RemoteAgentConfig(
+                database_url=f"sqlite:///{Path(temp_dir.name) / 'remote-agent.sqlite'}",
+                mcp_bearer_token="m" * 48,
+                hub_delegation_secret="d" * 48,
+                operator_bearer_token="o" * 48,
+                hub_audience="remote-agent-connector",
+                private_mcp_url="http://127.0.0.1:3030/mcp",
+                bind_host="127.0.0.1",
+                bind_port=3030,
+                allowed_hosts=("127.0.0.1:3030", "localhost:3030"),
+                allow_insecure_private_mcp=True,
+                trust_proxy_tls=True,
+                request_timeout_seconds=2,
+                heartbeat_timeout_seconds=30,
+            )
+            store = RemoteAgentStore(config.database_url)
+            app = create_app(config, store)
+            with TestClient(app) as client:
+                with client.websocket_connect(
+                    "/relay",
+                    headers={
+                        "Host": "localhost:3030",
+                        "X-Forwarded-Proto": "https",
+                    },
+                ) as websocket:
+                    message = websocket.receive_json()
+            self.assertEqual(message["type"], "challenge")
+            self.assertTrue(message["challenge"])
+            self.assertTrue(message["challenge_id"])
+        finally:
+            store.close()
             temp_dir.cleanup()

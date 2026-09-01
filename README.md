@@ -85,6 +85,11 @@ instances are marked offline before the response. Each entry is sanitized to
 `connected_at`; public keys, enrollment tokens, relay signatures, and
 filesystem paths are never returned.
 
+The private operator device inventory additionally returns the redacted
+`public_key_fingerprint`, capability profile, enrollment state, and heartbeat
+timestamps for Admin device management. It never returns the public key
+material itself or any enrollment secret.
+
 For all 23 MCP tools, agy2api passes the selected `device_id` as
 `profile_id`. The connector resolves that value as the exact enrolled device
 and optionally accepts `instance_id` to pin one live process. The capability

@@ -93,7 +93,11 @@ class AgentRelayEndpoint:
         self.service = service
         self.registry = registry
 
-    async def __call__(self, websocket: WebSocket) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        websocket = WebSocket(scope, receive=receive, send=send)
+        await self.handle(websocket)
+
+    async def handle(self, websocket: WebSocket) -> None:
         if not self._is_secure_connection(websocket):
             await websocket.close(code=1008)
             return
