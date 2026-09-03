@@ -289,17 +289,15 @@ class AgentRelayEndpoint:
             raise ProtocolError("relay response has no matching request")
         if message["status"] not in {"ok", "error"}:
             raise ProtocolError("relay response status is invalid")
+        payload = message.get("result")
+        if message["status"] == "ok" and isinstance(payload, dict):
+            result: dict[str, Any] = {"code": "ok", **payload}
+        elif message["status"] == "ok":
+            result = {"code": "ok", "result": payload}
+        else:
+            result = {"code": "device_error", "error": payload}
         future.set_result(
-            {
-                "code": (
-                    "ok" if message["status"] == "ok" else "device_error"
-                ),
-                **(
-                    message.get("result") or {}
-                    if message["status"] == "ok"
-                    else {"error": message.get("result")}
-                ),
-            }
+            result
         )
 
     def _is_secure_connection(self, websocket: WebSocket) -> bool:

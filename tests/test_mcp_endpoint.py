@@ -11,6 +11,7 @@ from pathlib import Path
 from starlette.testclient import TestClient
 
 from remote_agent_connector.config import RemoteAgentConfig
+from remote_agent_connector.relay import AgentRelayEndpoint, AgentRelaySession
 from remote_agent_connector.server import create_app
 from remote_agent_connector.store import RemoteAgentStore
 
@@ -308,3 +309,41 @@ class RemoteAgentEndpointTests(unittest.TestCase):
         finally:
             store.close()
             temp_dir.cleanup()
+
+    def test_relay_response_wraps_non_dict_payloads(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            future = loop.create_future()
+            session = AgentRelaySession(
+                websocket=None,
+                connector_id="windows-01",
+                instance_id="instance-01",
+                context_epoch=1,
+                connection_generation="generation-01",
+                capabilities=("connector_health", "files_list"),
+                capability_profile="read_only",
+                pending={"req-1": future},
+            )
+
+            AgentRelayEndpoint._receive_response(
+                session,
+                {
+                    "v": 1,
+                    "type": "response",
+                    "request_id": "req-1",
+                    "tool": "files.list",
+                    "connector_id": "windows-01",
+                    "status": "ok",
+                    "result": ["a.txt", "b.txt"],
+                },
+            )
+
+            self.assertTrue(future.done())
+            self.assertEqual(
+                future.result(),
+                {"code": "ok", "result": ["a.txt", "b.txt"]},
+            )
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
