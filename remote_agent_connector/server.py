@@ -414,13 +414,17 @@ def create_app(
     async def ssh_execute(
         profile_id: str,
         idempotency_key: str,
-        root: str,
         host: str,
         command: str,
+        root: str | None = None,
         timeout_s: int = 300,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
-        """Execute a command through an approved SSH profile."""
+        """Execute a command through an approved SSH profile.
+
+        ``host`` is the canonical host selector. ``root`` is accepted for
+        backward compatibility but is not used for SSH execution.
+        """
         return await call_agent(
             tool="ssh.execute",
             connector_id=profile_id,
