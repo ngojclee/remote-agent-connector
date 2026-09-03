@@ -17,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 
+from . import __version__
 from .config import RemoteAgentConfig
 from .errors import AgentError
 from .protocol import DelegatedIdentity, verify_delegation_headers
@@ -596,6 +597,7 @@ def create_app(
             {
                 "status": "ok",
                 "service": "remote-agent-connector",
+                "version": __version__,
             }
         )
 
