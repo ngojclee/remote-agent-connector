@@ -37,6 +37,17 @@ For local development only, set
 `REMOTE_AGENT_ALLOW_SQLITE_DEV=1`, `REMOTE_AGENT_ALLOW_INSECURE_HTTP=1`, and
 `REMOTE_AGENT_ALLOW_INSECURE_HTTP=1`.
 
+Optional:
+
+```text
+REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION=0
+```
+
+Unset or `0` keeps Phase 2 in shadow mode: a v4 caller whose Hub has no signing
+material still reaches the device with the Phase 1 statement object. Set `1`
+only after the Hub publishes key material and the Windows lane verifies
+cryptographically; then an unsigned v4 call fails closed.
+
 ## Tool catalog
 
 ```text
@@ -143,3 +154,31 @@ control. To revoke a device, the operator calls
 the device revoked and closes its live instance. A revoked record may be
 purged separately with `DELETE /operator/devices/{device_id}` after
 revocation has been verified.
+
+## Signed app assertions (Phase 2)
+
+The Business MCP Hub is the only issuer of an application identity statement.
+It signs a short-lived Ed25519 assertion per device call and sends it as
+`X-MCP-Hub-App-Assertion`. The connector never holds the signing root, so it
+cannot forge or edit the statement; it only:
+
+1. parses the envelope strictly,
+2. requires `client_id`, `app_id`, `scopes` and `nonce` to equal the HMAC
+   identity it already verified,
+3. requires `connector_id` to equal the call's `profile_id` target,
+4. uses the envelope's `request_id` as the relay `request_id`, so the
+   assertion is bound to exactly one frame,
+5. forwards the envelope verbatim inside `app_assertion`.
+
+`remote_agent_connector/app_assertion.py` is the reference device-side
+verifier and the executable form of the contract: pinned root, keyset
+verification, key-state and expiry checks, binding comparison, and replay
+rejection. The Windows connector implements the same rules in Rust.
+
+The shared byte-level vector lives in `tests/fixtures/app_assertion_vector.json`
+and mirrors `.docs/contracts/app-identity-v2.json` in the Hub repository. Change
+one and the other suite fails. Those keys are test-only and must never be used
+as live signing material.
+
+v3 callers, and v4 callers whose Hub has no signing material while the require
+flag is unset, keep producing byte-identical relay frames.

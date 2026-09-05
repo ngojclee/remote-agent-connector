@@ -1,0 +1,58 @@
+{
+  "assertion": {
+    "app_id": "codex",
+    "assertion_id": "b1e6f2a4-7c3d-4e5f-9a0b-2c4d6e8f0a1b",
+    "audience": "remote-agent-device",
+    "client_id": "v4-shadow-codex-20260905",
+    "connector_id": "agy2api-10.11.1.1",
+    "expires_at": 1817000090,
+    "issued_at": 1817000000,
+    "issuer": "business-mcp-hub",
+    "key_id": "sign-vector-a",
+    "nonce": "nnnnnnnnnnnnnnnnnnnnnnnn",
+    "request_id": "3f2b7c1a-9d4e-4f60-8a21-6c5e2b0d7f13",
+    "schema_version": "business-mcp-remote-agent-app-assertion-v2",
+    "scopes": [
+      "agent:read"
+    ],
+    "signature": "cF9vM1UfMZeuemalVtq5okwWozxewgknOlrbiayIVnKNuCHPRb2A3LA8IchE2ttn3qWLsRkCRSaOp5-t0r-kDQ"
+  },
+  "canonical_payload_sha256_assertion": "835fdbeab39850999ad7535a2b86f2029dd75f05e1ad7fa5de117849540e9bbd",
+  "canonical_payload_sha256_keyset": "a7b1ae41b03cfd0b3861ac6450bc1d9b6701731feb4485d9892a5dc36864887e",
+  "keyset": {
+    "expires_at": 1817003600,
+    "issued_at": 1817000000,
+    "issuer": "business-mcp-hub",
+    "keys": [
+      {
+        "key_id": "sign-vector-a",
+        "not_after": 1817003600,
+        "not_before": 1816999400,
+        "public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA",
+        "status": "active"
+      },
+      {
+        "key_id": "sign-vector-retiring",
+        "not_after": 1817001800,
+        "not_before": 1816992800,
+        "public_key": "rcFAEfgtHFbZVqpPnXPYhYNhpgYEhSXg0Ixjjcdd2Mc",
+        "status": "retiring"
+      },
+      {
+        "key_id": "sign-vector-revoked",
+        "not_after": 1817001800,
+        "not_before": 1816992800,
+        "public_key": "iC0Oo7KGTnpYfz5pjOpEWZmDEuZV4F-l6LURnYuqyM0",
+        "status": "revoked"
+      }
+    ],
+    "root_key_id": "root-vector-2026-09",
+    "schema_version": "business-mcp-remote-agent-app-keyset-v1",
+    "signature": "xGXFAhg9Xf5rr56SzaO-VRcF54vlDuneng_aZmo3jtHddQIPN6aryVCWS0YXE9RXOwNnyNWDmbXq7eeaaFl2Ag"
+  },
+  "note": "Deterministic material for cross-repo and cross-language checks. These are test-only keys and must never be used as live signing material.",
+  "pinned_clock_unix_seconds": 1817000001,
+  "root_key_id": "root-vector-2026-09",
+  "root_public_key": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ",
+  "signing_public_key": "5_FioQvsVZr-oZXk3OhLaVaNXSywlj60RsBoXisX8vA"
+}

@@ -114,6 +114,9 @@ def create_app(
                 headers=request.headers,
                 secret=resolved_config.hub_delegation_secret,
                 audience=resolved_config.hub_audience,
+                require_app_assertion=(
+                    resolved_config.require_signed_app_assertion
+                ),
             )
         except Exception as exc:
             raise ToolError("delegation_invalid") from None

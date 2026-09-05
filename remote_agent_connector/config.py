@@ -109,6 +109,10 @@ class RemoteAgentConfig:
     trust_proxy_tls: bool
     request_timeout_seconds: int
     heartbeat_timeout_seconds: int
+    # Shadow mode by default: a v4 caller whose Hub has no signing material yet
+    # still reaches the device with the Phase 1 statement. Set the flag to turn
+    # that into a hard requirement before any device enforcement claim.
+    require_signed_app_assertion: bool = False
 
     @classmethod
     def from_env(cls) -> "RemoteAgentConfig":
@@ -198,4 +202,7 @@ class RemoteAgentConfig:
             trust_proxy_tls=_env_flag("REMOTE_AGENT_TRUST_PROXY_TLS"),
             request_timeout_seconds=timeout,
             heartbeat_timeout_seconds=heartbeat_timeout,
+            require_signed_app_assertion=_env_flag(
+                "REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION"
+            ),
         )

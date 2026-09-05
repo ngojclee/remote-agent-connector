@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -16,9 +17,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 
 CLIENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,47}$")
+APP_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 CONNECTOR_ID_PATTERN = re.compile(
     r"^[a-z][a-z0-9][a-z0-9_.-]{0,62}$"
 )
+KEY_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 INSTANCE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,128}$")
 SCOPE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._*-]{0,63}$")
@@ -27,6 +30,35 @@ PLATFORM_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._()#:/-]{0,63}$")
 PROTOCOL_VERSION = 1
 RELAY_MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 RESULT_MAX_BYTES = 1 * 1024 * 1024
+
+# Phase 2 signed app assertion. The Hub is the only issuer; the connector only
+# forwards the envelope, and the device verifies it against a pinned root.
+APP_ASSERTION_SCHEMA_VERSION = (
+    "business-mcp-remote-agent-app-assertion-v2"
+)
+APP_ASSERTION_ISSUER = "business-mcp-hub"
+APP_ASSERTION_AUDIENCE = "remote-agent-device"
+APP_ASSERTION_HEADER = "x-mcp-hub-app-assertion"
+APP_ASSERTION_MAX_TTL_SECONDS = 90
+APP_ASSERTION_CLOCK_SKEW_SECONDS = 5
+ASSERTION_FIELDS = frozenset(
+    {
+        "schema_version",
+        "issuer",
+        "audience",
+        "key_id",
+        "client_id",
+        "app_id",
+        "connector_id",
+        "scopes",
+        "issued_at",
+        "expires_at",
+        "nonce",
+        "request_id",
+        "assertion_id",
+        "signature",
+    }
+)
 
 AGENT_READ_SCOPE = "agent:read"
 AGENT_WRITE_SCOPE = "agent:write"
@@ -263,6 +295,81 @@ def public_key_fingerprint(public_key_b64: str) -> str:
     ).hexdigest()[:16]
 
 
+def canonical_json_bytes(value: dict[str, Any]) -> bytes:
+    """Byte-exact JSON both the Hub and the device sign over."""
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _assertion_int(value: Any, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ProtocolError(f"app assertion {field} is invalid")
+    return value
+
+
+def parse_app_assertion(value: Any) -> dict[str, Any]:
+    """Strictly decode a Hub-signed app assertion.
+
+    Two transports carry the same envelope: the connector receives it as a
+    base64url header, and a device receives it as the relay frame's JSON
+    object. Both forms are accepted here so the connector and the reference
+    verifier share one strict parser. The cryptographic check stays
+    device-side.
+    """
+    if isinstance(value, dict):
+        decoded = value
+    else:
+        encoded = str(value or "").strip()
+        if not encoded:
+            raise ProtocolError("app assertion is missing")
+        try:
+            decoded = json.loads(
+                base64.urlsafe_b64decode(
+                    encoded + "=" * (-len(encoded) % 4)
+                ).decode("utf-8")
+            )
+        except (TypeError, ValueError, UnicodeDecodeError) as exc:
+            raise ProtocolError("app assertion is not valid JSON") from exc
+    if not isinstance(decoded, dict) or set(decoded) != ASSERTION_FIELDS:
+        raise ProtocolError("app assertion fields are invalid")
+    if decoded["schema_version"] != APP_ASSERTION_SCHEMA_VERSION:
+        raise ProtocolError("app assertion schema is unsupported")
+    if decoded["issuer"] != APP_ASSERTION_ISSUER:
+        raise ProtocolError("app assertion issuer is invalid")
+    if decoded["audience"] != APP_ASSERTION_AUDIENCE:
+        raise ProtocolError("app assertion audience is invalid")
+    if not KEY_ID_PATTERN.fullmatch(str(decoded["key_id"])):
+        raise ProtocolError("app assertion key id is invalid")
+    parse_client_id(decoded["client_id"])
+    app_id = str(decoded["app_id"] or "").strip()
+    if not APP_ID_PATTERN.fullmatch(app_id):
+        raise ProtocolError("app assertion app id is invalid")
+    parse_connector_id(decoded["connector_id"])
+    normalize_scopes_result = validate_agent_scopes(decoded["scopes"])
+    issued_at = _assertion_int(decoded["issued_at"], field="issued_at")
+    expires_at = _assertion_int(decoded["expires_at"], field="expires_at")
+    if expires_at <= issued_at:
+        raise ProtocolError("app assertion expiry is invalid")
+    if expires_at - issued_at > APP_ASSERTION_MAX_TTL_SECONDS:
+        raise ProtocolError("app assertion lifetime is too long")
+    parse_nonce(decoded["nonce"])
+    parse_uuid(decoded["request_id"], field="request_id")
+    parse_uuid(decoded["assertion_id"], field="assertion_id")
+    parse_signature(decoded["signature"])
+    return {
+        **decoded,
+        "app_id": app_id,
+        "scopes": list(normalize_scopes_result),
+    }
+
+
 def canonical_delegation(
     *,
     audience: str,
@@ -307,6 +414,9 @@ class DelegatedIdentity:
     nonce: str
     timestamp: int
     app_id: str = ""
+    # Parsed Phase 2 envelope, or None for a legacy v3 caller and for a v4
+    # caller whose Hub has no signing material configured yet (shadow mode).
+    app_assertion: dict[str, Any] | None = None
 
 
 def verify_delegation_headers(
@@ -316,6 +426,7 @@ def verify_delegation_headers(
     audience: str,
     now: int | None = None,
     max_age_seconds: int = 90,
+    require_app_assertion: bool = False,
 ) -> DelegatedIdentity:
     try:
         client_id = parse_client_id(
@@ -364,12 +475,39 @@ def verify_delegation_headers(
     ).hexdigest()
     if not hmac.compare_digest(expected, signature):
         raise ProtocolError("delegation signature is invalid")
+    app_assertion = None
+    raw_assertion = str(
+        headers.get(APP_ASSERTION_HEADER, "") or ""
+    ).strip()
+    if app_id:
+        if raw_assertion:
+            app_assertion = parse_app_assertion(raw_assertion)
+            # The envelope must describe the identity the HMAC just proved.
+            # Without this a connector could pair a valid signature with a
+            # different caller's signed statement.
+            matched = (
+                app_assertion["client_id"] == client_id
+                and app_assertion["app_id"] == app_id
+                and app_assertion["nonce"] == nonce
+                and tuple(app_assertion["scopes"]) == scopes
+            )
+            if not matched:
+                raise ProtocolError(
+                    "app assertion does not match the delegation"
+                )
+        elif require_app_assertion:
+            raise ProtocolError("app assertion is required")
+    elif raw_assertion:
+        # An assertion without a v4 signature has no meaning, and accepting one
+        # would let a caller present a binding it never signed for.
+        raise ProtocolError("app assertion requires a v4 delegation")
     return DelegatedIdentity(
         client_id=client_id,
         scopes=scopes,
         nonce=nonce,
         timestamp=timestamp,
         app_id=app_id,
+        app_assertion=app_assertion,
     )
 
 

@@ -400,6 +400,13 @@ class RemoteAgentService:
         from .protocol import parse_connector_id
 
         connector_id = parse_connector_id(connector_id)
+        if (
+            identity.app_assertion is not None
+            and identity.app_assertion["connector_id"] != connector_id
+        ):
+            # The Hub signed this assertion for one enrolled device. Forwarding
+            # it to another would let a caller reuse a binding elsewhere.
+            raise AgentError("app_assertion_connector_mismatch")
         session_row = self._relay_session(
             connector_id=connector_id,
             instance_id=instance_id,
@@ -422,7 +429,13 @@ class RemoteAgentService:
         capability = tool.replace(".", "_")
         if not session.has_capability(capability):
             raise AgentError("capability_not_granted")
-        request_id = str(uuid.uuid4())
+        # A signed assertion already carries the correlation id the device will
+        # verify against, so the relay must use exactly that value. The fresh
+        # uuid keeps v3 and shadow-mode frames behaving as they do today.
+        request_id = str(
+            (identity.app_assertion or {}).get("request_id")
+            or uuid.uuid4()
+        )
         request_digest = canonical_json_digest(
             {
                 "connector_id": connector_id,
@@ -467,11 +480,20 @@ class RemoteAgentService:
                     **(
                         {
                             "app_id": identity.app_id,
-                            "app_assertion": {
-                                "source": "hub-delegation-v4",
-                                "verified": True,
-                                "client_id": identity.client_id,
-                            },
+                            # A Phase 2 envelope is forwarded verbatim so the
+                            # device can verify it cryptographically. Without
+                            # one the frame keeps the Phase 1 statement object,
+                            # which a device may only trust while enforcement
+                            # is off.
+                            "app_assertion": (
+                                identity.app_assertion
+                                if identity.app_assertion is not None
+                                else {
+                                    "source": "hub-delegation-v4",
+                                    "verified": True,
+                                    "client_id": identity.client_id,
+                                }
+                            ),
                         }
                         if identity.app_id
                         else {}
