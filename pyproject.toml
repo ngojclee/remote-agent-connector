@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "remote-agent-connector"
-version = "0.1.3"
+version = "0.1.4"
 description = "Typed Remote Agent connector between Business MCP Hub and client devices"
 readme = "README.md"
 requires-python = ">=3.11"

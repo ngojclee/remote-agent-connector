@@ -364,22 +364,28 @@ def create_app(
     async def terminal_execute(
         profile_id: str,
         idempotency_key: str,
-        root: str,
         command: str,
+        root: str | None = None,
         timeout_s: int = 300,
         cwd: str | None = None,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
-        """Execute an allowlisted command on the remote agent."""
+        """Execute an allowlisted command on the remote agent.
+
+        ``root`` is optional and forwarded only when supplied, so a caller can
+        dispatch a bare command. Callers that still send ``root`` keep working.
+        """
+        arguments: dict[str, Any] = {
+            "command": command,
+            "timeout_s": timeout_s,
+            "cwd": cwd,
+        }
+        if root is not None:
+            arguments["root"] = root
         return await call_agent(
             tool="terminal.execute",
             connector_id=profile_id,
-            arguments={
-                "root": root,
-                "command": command,
-                "timeout_s": timeout_s,
-                "cwd": cwd,
-            },
+            arguments=arguments,
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
             instance_id=instance_id,

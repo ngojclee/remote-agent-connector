@@ -347,3 +347,59 @@ class RemoteAgentEndpointTests(unittest.TestCase):
         finally:
             asyncio.set_event_loop(None)
             loop.close()
+
+    def test_published_argument_schema_required_fields(self):
+        """Lock the tool schema that clients actually receive from tools/list.
+
+        The Hub catalog only carries scopes, so this connector signature is the
+        single source of truth for which arguments are required. A required
+        ``root`` on the command tools made callers fail validation before the
+        device ever saw the request.
+        """
+        temp_dir = tempfile.TemporaryDirectory()
+        store = None
+        try:
+            config = RemoteAgentConfig(
+                database_url=f"sqlite:///{Path(temp_dir.name) / 'remote-agent.sqlite'}",
+                mcp_bearer_token="m" * 48,
+                hub_delegation_secret="d" * 48,
+                operator_bearer_token="o" * 48,
+                hub_audience="remote-agent-connector",
+                private_mcp_url="http://127.0.0.1:3030/mcp",
+                bind_host="127.0.0.1",
+                bind_port=3030,
+                allowed_hosts=("127.0.0.1:3030", "localhost:3030"),
+                allow_insecure_private_mcp=True,
+                trust_proxy_tls=False,
+                request_timeout_seconds=2,
+                heartbeat_timeout_seconds=2,
+            )
+            store = RemoteAgentStore(config.database_url)
+            app = create_app(config, store)
+            tools = {
+                tool.name: tool.inputSchema
+                for tool in asyncio.run(app.state.mcp_server.list_tools())
+            }
+
+            for name in ("terminal_execute", "ssh_execute"):
+                with self.subTest(tool=name):
+                    required = tools[name].get("required") or []
+                    self.assertNotIn("root", required)
+                    self.assertIn("command", required)
+                    self.assertIn("profile_id", required)
+                    self.assertIn("idempotency_key", required)
+                    root = tools[name]["properties"]["root"]
+                    self.assertIsNone(root.get("default"))
+
+            # File tools stay root-scoped.
+            for name in ("files_read", "files_list", "files_write"):
+                with self.subTest(tool=name):
+                    required = tools[name].get("required") or []
+                    self.assertIn("root", required)
+                    self.assertIn("path", required)
+
+            self.assertIn("host", tools["ssh_execute"].get("required") or [])
+        finally:
+            if store is not None:
+                store.close()
+            temp_dir.cleanup()
