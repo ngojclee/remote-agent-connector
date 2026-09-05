@@ -459,6 +459,23 @@ class RemoteAgentService:
                     "tool": tool,
                     "connector_id": connector_id,
                     "arguments": arguments,
+                    # Carry the already-verified application identity to the
+                    # device. The connector holds the delegation secret and has
+                    # checked the signature, so the device gets the binding
+                    # without ever receiving the secret itself. Omitted entirely
+                    # for legacy v3 callers so their frames are byte-identical.
+                    **(
+                        {
+                            "app_id": identity.app_id,
+                            "app_assertion": {
+                                "source": "hub-delegation-v4",
+                                "verified": True,
+                                "client_id": identity.client_id,
+                            },
+                        }
+                        if identity.app_id
+                        else {}
+                    ),
                 }
             )
             result = await asyncio.wait_for(

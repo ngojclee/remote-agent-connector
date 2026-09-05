@@ -258,6 +258,101 @@ class CapabilityContractTests(unittest.TestCase):
                 )
                 self.assertEqual(result["code"], "ok")
 
+    def test_relay_frame_carries_the_verified_app_assertion(self):
+        """A bound caller must reach the device with its app identity.
+
+        The device flattens unknown request fields, so this is the only place
+        the application binding can travel. Without it every app-scoped
+        approval on the device resolves to nothing.
+        """
+        frames = self._capture_frames(app_id="codex")
+        self.assertEqual(len(frames), 1)
+        frame = frames[0]
+        self.assertEqual(frame["app_id"], "codex")
+        self.assertEqual(
+            frame["app_assertion"],
+            {
+                "source": "hub-delegation-v4",
+                "verified": True,
+                "client_id": "agy2api",
+            },
+        )
+        # The delegation secret never travels; only the resolved identity does.
+        flattened = json.dumps(frame)
+        self.assertNotIn("d" * 48, flattened)
+
+    def test_unbound_caller_frame_is_unchanged(self):
+        """Legacy v3 callers keep producing byte-identical frames."""
+        frames = self._capture_frames(app_id="")
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(
+            set(frames[0]),
+            {"v", "type", "request_id", "tool", "connector_id", "arguments"},
+        )
+        self.assertNotIn("app_id", frames[0])
+
+    def _capture_frames(self, *, app_id: str) -> list[dict]:
+        temp_dir = tempfile.TemporaryDirectory()
+        store = None
+        try:
+            config = self._config(temp_dir.name)
+            store = RemoteAgentStore(config.database_url)
+            service = RemoteAgentService(config=config, store=store)
+            now = datetime.now(timezone.utc)
+            store.enroll_device(
+                connector_id="agy2api-10.11.1.1",
+                public_key="k" * 43,
+                display_label="Verify",
+                capability_profile="full_agent",
+                platform="Windows 11",
+                now=now,
+            )
+            store.upsert_presence(
+                connector_id="agy2api-10.11.1.1",
+                instance_id="instance-01",
+                connection_generation="generation-01",
+                context_epoch=1,
+                capabilities=tuple(capabilities_for_profile("full_agent")),
+                now=now,
+            )
+            websocket = _AnsweringWebSocket()
+            session = AgentRelaySession(
+                websocket=websocket,
+                connector_id="agy2api-10.11.1.1",
+                instance_id="instance-01",
+                context_epoch=1,
+                connection_generation="generation-01",
+                capabilities=tuple(
+                    capabilities_for_profile("full_agent")
+                ),
+                capability_profile="full_agent",
+            )
+            websocket._session = session
+            service.set_registry(_StubRegistry(session))
+            identity = DelegatedIdentity(
+                client_id="agy2api",
+                scopes=("agent:read",),
+                nonce="n" * 24,
+                timestamp=0,
+                app_id=app_id,
+            )
+
+            async def call():
+                return await service.device_command(
+                    identity=identity,
+                    tool="files.read",
+                    connector_id="agy2api-10.11.1.1",
+                    arguments={"root": "workspace", "path": "."},
+                    idempotency_key=f"frame-{app_id or 'none'}",
+                )
+
+            asyncio.run(call())
+            return list(websocket.sent)
+        finally:
+            if store is not None:
+                store.close()
+            temp_dir.cleanup()
+
     def test_stale_column_device_still_enforces_current_profile(self):
         """A device enrolled under an older profile is not grandfathered in."""
         temp_dir = tempfile.TemporaryDirectory()
