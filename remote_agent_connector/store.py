@@ -403,8 +403,11 @@ class RemoteAgentStore:
             device = self.get_device(connector_id)
             if device is None or device["enrollment_state"] != "enrolled":
                 return False
+            # Derive the ceiling from the enrolled profile rather than the
+            # column frozen at enrollment, so a connector release that changes
+            # a profile takes effect on reconnect without re-pairing the device.
             stored_capabilities = set(
-                json.loads(device["capabilities_json"] or "[]")
+                capabilities_for_profile(device["capability_profile"])
             )
             if not set(capabilities).issubset(stored_capabilities):
                 return False

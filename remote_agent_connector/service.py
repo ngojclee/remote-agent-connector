@@ -259,7 +259,9 @@ class RemoteAgentService:
         if device is None:
             raise AgentError("device_not_found")
         instance = self.store.latest_online_instance(connector_id=connector_id)
-        capabilities = json.loads(device["capabilities_json"] or "[]")
+        capabilities = list(
+            capabilities_for_profile(device["capability_profile"])
+        )
         return {
             "connector_id": connector_id,
             "display_label": device["display_label"],
@@ -292,7 +294,9 @@ class RemoteAgentService:
         )
         agents = []
         for row in rows:
-            capabilities = json.loads(row["capabilities_json"] or "[]")
+            capabilities = list(
+                capabilities_for_profile(row["capability_profile"])
+            )
             agents.append(
                 {
                     "device_id": row["device_id"],
