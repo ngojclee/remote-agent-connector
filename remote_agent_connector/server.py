@@ -391,31 +391,11 @@ def create_app(
             instance_id=instance_id,
         )
 
-    @server.tool(annotations=CONTROL)
-    async def terminal_stream(
-        profile_id: str,
-        idempotency_key: str,
-        root: str,
-        command: str,
-        timeout_s: int = 300,
-        cwd: str | None = None,
-        instance_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Start a bounded command stream on the remote agent."""
-        return await call_agent(
-            tool="terminal.stream",
-            connector_id=profile_id,
-            arguments={
-                "root": root,
-                "command": command,
-                "timeout_s": timeout_s,
-                "cwd": cwd,
-            },
-            identity=delegated_identity(),
-            idempotency_key=idempotency_key,
-            instance_id=instance_id,
-        )
-
+    # terminal_stream is intentionally not published. No layer implements it:
+    # the Windows device has no dispatch arm for it and the Hub catalog omits
+    # it. Publishing it produced a call that always failed and read like a
+    # permissions problem. To restore, add the tool here, the capability in
+    # protocol.py, and the entry in the Hub catalog.
     @server.tool(annotations=CONTROL)
     async def ssh_execute(
         profile_id: str,

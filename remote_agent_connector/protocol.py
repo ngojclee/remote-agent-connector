@@ -55,6 +55,7 @@ READ_ONLY_CAPABILITIES = (
     "files_read",
     "files_download",
     "skills_list",
+    "skills_materialize",
     "mcp_list_servers",
     "mcp_health",
     "skills_health",
@@ -70,7 +71,6 @@ READ_WRITE_CAPABILITIES = (
 FULL_AGENT_CAPABILITIES = (
     *READ_WRITE_CAPABILITIES,
     "terminal_execute",
-    "terminal_stream",
     "ssh_execute",
     "ssh_list_profiles",
     "skills_execute",

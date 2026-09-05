@@ -410,6 +410,14 @@ class RemoteAgentService:
         )
         if session is None:
             raise AgentError("device_offline")
+        # Enforce the enrolled capability ceiling at execution time, not only
+        # at authentication. Relay verbs are dotted (`files.list`) while
+        # capabilities are underscore (`files_list`), so normalise before the
+        # lookup. Without this the Hub catalog and client scopes were the only
+        # gates and a read_only device could be dispatched a write verb.
+        capability = tool.replace(".", "_")
+        if not session.has_capability(capability):
+            raise AgentError("capability_not_granted")
         request_id = str(uuid.uuid4())
         request_digest = canonical_json_digest(
             {
