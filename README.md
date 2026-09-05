@@ -41,12 +41,21 @@ Optional:
 
 ```text
 REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION=0
+REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS=120   # 1-165
 ```
 
 Unset or `0` keeps Phase 2 in shadow mode: a v4 caller whose Hub has no signing
 material still reaches the device with the Phase 1 statement object. Set `1`
 only after the Hub publishes key material and the Windows lane verifies
 cryptographically; then an unsigned v4 call fails closed.
+
+`REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS` is capped at 165 on purpose. The Hub will
+not issue an assertion that lives shorter than 180 seconds, and a device may
+verify one up to 5 seconds early or late on clock skew plus 5 seconds of
+delivery. A longer connector wait could leave it holding a call whose assertion
+expires before the device checks it, which becomes a false deny the moment
+enforcement turns on. The connector refuses to start past the ceiling, so raise
+the Hub floor first if this ever needs to grow.
 
 ## Tool catalog
 

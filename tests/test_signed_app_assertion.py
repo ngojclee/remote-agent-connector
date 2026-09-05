@@ -13,9 +13,11 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import tempfile
 import time
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +34,8 @@ from remote_agent_connector.config import RemoteAgentConfig
 from remote_agent_connector.errors import AgentError
 from remote_agent_connector.protocol import (
     APP_ASSERTION_HEADER,
+    APP_ASSERTION_MAX_TTL_SECONDS,
+    CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS,
     DelegatedIdentity,
     ProtocolError,
     b64url_encode,
@@ -632,6 +636,125 @@ class _StubRegistry:
         ):
             return self._session
         return None
+
+
+class TimingInvariantTests(unittest.TestCase):
+    """A device must never verify an assertion the connector already expired.
+
+    The Hub refuses to configure an assertion lifetime below 180 seconds, and
+    the connector refuses to wait longer than the ceiling below, so the
+    envelope is still valid at the worst moment the device can check it.
+    """
+
+    ASSERTION_LIFETIME_FLOOR_SECONDS = 180
+    CLOCK_SKEW_SECONDS = 5
+    DELIVERY_MARGIN_SECONDS = 5
+
+    def _env(self, timeout: str) -> dict[str, str]:
+        return {
+            "REMOTE_AGENT_DATABASE_URL": "sqlite:///:memory:",
+            "REMOTE_AGENT_ALLOW_SQLITE_DEV": "1",
+            "REMOTE_AGENT_ALLOW_INSECURE_HTTP": "1",
+            "REMOTE_AGENT_MCP_BEARER_TOKEN": "m" * 48,
+            "REMOTE_AGENT_HUB_DELEGATION_SECRET": SECRET,
+            "REMOTE_AGENT_OPERATOR_BEARER_TOKEN": "o" * 48,
+            "REMOTE_AGENT_HUB_AUDIENCE": AUDIENCE,
+            "REMOTE_AGENT_PRIVATE_MCP_URL": "http://127.0.0.1:3030/mcp",
+            "REMOTE_AGENT_ALLOWED_HOSTS": "127.0.0.1:3030",
+            "REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS": timeout,
+        }
+
+    def test_the_published_numbers_satisfy_the_invariant(self):
+        self.assertGreater(
+            self.ASSERTION_LIFETIME_FLOOR_SECONDS,
+            CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS
+            + self.CLOCK_SKEW_SECONDS
+            + self.DELIVERY_MARGIN_SECONDS,
+        )
+        self.assertGreaterEqual(
+            APP_ASSERTION_MAX_TTL_SECONDS,
+            self.ASSERTION_LIFETIME_FLOOR_SECONDS,
+        )
+
+    def test_config_accepts_the_ceiling_and_refuses_a_longer_wait(self):
+        ceiling = CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS
+        cases = (
+            ("120", True),
+            (str(ceiling), True),
+            (str(ceiling + 1), False),
+        )
+        for value, allowed in cases:
+            with self.subTest(timeout=value):
+                with mock.patch.dict(os.environ, self._env(value), clear=True):
+                    if allowed:
+                        config = RemoteAgentConfig.from_env()
+                        self.assertEqual(
+                            config.request_timeout_seconds, int(value)
+                        )
+                    else:
+                        with self.assertRaises(RuntimeError) as caught:
+                            RemoteAgentConfig.from_env()
+                        self.assertIn(
+                            "Raise the Hub assertion lifetime floor first",
+                            str(caught.exception),
+                        )
+
+    def test_assertion_still_verifies_at_the_worst_case_wait(self):
+        issued = 1_817_000_000
+        keyring = _Keyring(issued_at=issued)
+        assertion = keyring.assertion(
+            expires_at=issued + self.ASSERTION_LIFETIME_FLOOR_SECONDS
+        )
+        verifier = AppAssertionVerifier(
+            anchor=TrustAnchor(
+                root_key_id="root-local-test",
+                root_public_key=b64url_encode(
+                    keyring.root.public_key().public_bytes_raw()
+                ),
+            ),
+            connector_id=DEVICE_CONNECTOR_ID,
+            clock=lambda: issued,
+        )
+        keys = verifier.verify_keyset(keyring.keyset())
+        expected = {
+            "request_id": assertion["request_id"],
+            "expected_client_id": assertion["client_id"],
+            "expected_app_id": assertion["app_id"],
+            "expected_scopes": tuple(assertion["scopes"]),
+        }
+        worst_case = (
+            issued
+            + CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS
+            + self.CLOCK_SKEW_SECONDS
+        )
+        verifier.clock = lambda: worst_case
+        verified = verifier.verify(assertion, keys=keys, **expected)
+        self.assertEqual(verified.app_id, "codex")
+
+        beyond = AppAssertionVerifier(
+            anchor=verifier.anchor,
+            connector_id=DEVICE_CONNECTOR_ID,
+            clock=lambda: issued
+            + self.ASSERTION_LIFETIME_FLOOR_SECONDS
+            + 1,
+        )
+        with self.assertRaises(AppAssertionError) as caught:
+            beyond.verify(assertion, keys=keys, **expected)
+        self.assertEqual(caught.exception.code, "app_assertion_expired")
+
+    def test_a_180_second_envelope_parses(self):
+        """The connector must accept the new lifetime, not merely the floor."""
+        issued = 1_817_000_000
+        assertion = _Keyring(issued_at=issued).assertion(
+            expires_at=issued + self.ASSERTION_LIFETIME_FLOOR_SECONDS
+        )
+        parsed = parse_app_assertion(
+            b64url_encode(canonical_json_bytes(assertion))
+        )
+        self.assertEqual(
+            parsed["expires_at"] - parsed["issued_at"],
+            self.ASSERTION_LIFETIME_FLOOR_SECONDS,
+        )
 
 
 class RelayFrameTests(unittest.TestCase):

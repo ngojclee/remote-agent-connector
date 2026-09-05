@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from .protocol import CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS
+
 
 _PLACEHOLDER_MARKERS = (
     "replace-with",
@@ -144,9 +146,13 @@ class RemoteAgentConfig:
                 "60",
             )
         )
-        if not 1 <= timeout <= 3600:
+        if not 1 <= timeout <= CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS:
             raise RuntimeError(
-                "REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS must be 1-3600"
+                "REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS must be between 1 and "
+                f"{CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS}. A longer wait would "
+                "let the connector hold a device call whose signed app "
+                "assertion can expire before the device verifies it. Raise the "
+                "Hub assertion lifetime floor first."
             )
         heartbeat_timeout = int(
             os.getenv(

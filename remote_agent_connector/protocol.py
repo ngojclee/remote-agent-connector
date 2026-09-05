@@ -39,8 +39,15 @@ APP_ASSERTION_SCHEMA_VERSION = (
 APP_ASSERTION_ISSUER = "business-mcp-hub"
 APP_ASSERTION_AUDIENCE = "remote-agent-device"
 APP_ASSERTION_HEADER = "x-mcp-hub-app-assertion"
-APP_ASSERTION_MAX_TTL_SECONDS = 90
+APP_ASSERTION_MAX_TTL_SECONDS = 300
 APP_ASSERTION_CLOCK_SKEW_SECONDS = 5
+# The connector must never stay waiting on a device call whose assertion can
+# expire before that device verifies it. The Hub refuses to configure an
+# assertion lifetime below 180 seconds, so this ceiling keeps the whole chain
+# inside that floor with slack: 180 is greater than this value plus the skew
+# allowance above plus the 5 second Hub delivery margin. Changing either side
+# without the other fails a test in both repositories.
+CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS = 165
 ASSERTION_FIELDS = frozenset(
     {
         "schema_version",
