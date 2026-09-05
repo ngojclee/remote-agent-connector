@@ -457,7 +457,7 @@ def create_app(
             instance_id=instance_id,
         )
 
-    @server.tool(annotations=CONTROL)
+    @server.tool(annotations=WRITE)
     async def skills_materialize(
         profile_id: str,
         idempotency_key: str,
@@ -465,7 +465,13 @@ def create_app(
         target_root: str,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
-        """Materialize approved instruction and reference files."""
+        """Materialize approved instruction and reference files into a root.
+
+        This is a mutation: it writes files under ``target_root`` and requires
+        both the skills and write grants. The device currently answers with an
+        explicit not-implemented error, so the tool is reachable but performs no
+        work until the Windows Connector ships it.
+        """
         return await call_agent(
             tool="skills.materialize",
             connector_id=profile_id,
@@ -539,7 +545,13 @@ def create_app(
         server_id: str | None = None,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
-        """Return local MCP server health."""
+        """Report discovered local MCP servers, not live connectivity.
+
+        The device discovers server entries from other harnesses' config files
+        and never launches them, so a reported server is configuration that was
+        seen, not a process that is running or reachable. Treat
+        ``connected: false`` as the expected answer today rather than a fault.
+        """
         return await call_agent(
             tool="mcp.health",
             connector_id=profile_id,
@@ -565,23 +577,11 @@ def create_app(
             instance_id=instance_id,
         )
 
-    @server.tool(annotations=CONTROL)
-    async def connector_restart_mcp(
-        profile_id: str,
-        idempotency_key: str,
-        server_id: str,
-        instance_id: str | None = None,
-    ) -> dict[str, Any]:
-        """Restart one approved local MCP server."""
-        return await call_agent(
-            tool="connector.restart_mcp",
-            connector_id=profile_id,
-            arguments={"server_id": server_id},
-            identity=delegated_identity(),
-            idempotency_key=idempotency_key,
-            instance_id=instance_id,
-        )
-
+    # connector_restart_mcp is removed rather than stubbed. The device only
+    # discovers MCP servers that other harnesses own and never launches them,
+    # so there is no connector-owned process to restart. Implementing it would
+    # mean controlling another application's processes. It returns only when a
+    # connector-owned supervisor exists and marks its servers as managed.
     async def health(request: Request) -> JSONResponse:
         return JSONResponse(
             {

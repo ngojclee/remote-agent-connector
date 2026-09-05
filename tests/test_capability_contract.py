@@ -84,7 +84,11 @@ class CapabilityContractTests(unittest.TestCase):
         full = set(FULL_AGENT_CAPABILITIES)
         self.assertTrue(read_only <= read_write <= full)
         self.assertNotIn("terminal_stream", full)
-        self.assertIn("skills_materialize", read_only)
+        # Materializing writes files, so it is never a read_only capability.
+        self.assertNotIn("skills_materialize", read_only)
+        self.assertIn("skills_materialize", read_write)
+        # Nothing owns these processes, so they are not offered at all.
+        self.assertNotIn("connector_restart_mcp", full)
         self.assertEqual(len(full), len(capabilities_for_profile("full_agent")))
 
     def test_published_tools_match_full_agent_profile(self):

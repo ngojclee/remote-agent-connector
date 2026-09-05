@@ -55,7 +55,6 @@ READ_ONLY_CAPABILITIES = (
     "files_read",
     "files_download",
     "skills_list",
-    "skills_materialize",
     "mcp_list_servers",
     "mcp_health",
     "skills_health",
@@ -67,6 +66,9 @@ READ_WRITE_CAPABILITIES = (
     "files_move",
     "files_mkdir",
     "files_upload",
+    # Materializing a skill writes instruction and asset files into an
+    # approved root, so it is a mutation and never a read_only capability.
+    "skills_materialize",
 )
 FULL_AGENT_CAPABILITIES = (
     *READ_WRITE_CAPABILITIES,
@@ -75,7 +77,6 @@ FULL_AGENT_CAPABILITIES = (
     "ssh_list_profiles",
     "skills_execute",
     "mcp_call",
-    "connector_restart_mcp",
 )
 CAPABILITIES_BY_PROFILE = {
     "read_only": frozenset(READ_ONLY_CAPABILITIES),
@@ -269,10 +270,26 @@ def canonical_delegation(
     timestamp: int,
     nonce: str,
     scopes: str | list[str],
+    app_id: str = "",
 ) -> bytes:
     normalized_client_id = parse_client_id(client_id)
     normalized_nonce = parse_nonce(nonce)
     normalized_scopes = validate_agent_scopes(scopes)
+    normalized_app_id = str(app_id or "").strip()
+    if normalized_app_id:
+        # v4 binds the caller's application identity into the signature so a
+        # device can approve per app without trusting a tool argument. The app
+        # id is an assertion from the Hub; the device's own verified binding
+        # stays authoritative.
+        return (
+            "v4\n"
+            f"{audience}\n"
+            f"{normalized_client_id}\n"
+            f"{normalized_app_id}\n"
+            f"{int(timestamp)}\n"
+            f"{normalized_nonce}\n"
+            f"{','.join(normalized_scopes)}"
+        ).encode("utf-8")
     return (
         "v3\n"
         f"{audience}\n"
@@ -289,6 +306,7 @@ class DelegatedIdentity:
     scopes: tuple[str, ...]
     nonce: str
     timestamp: int
+    app_id: str = ""
 
 
 def verify_delegation_headers(
@@ -324,12 +342,20 @@ def verify_delegation_headers(
     current = int(time.time() if now is None else now)
     if abs(current - timestamp) > max(1, max_age_seconds):
         raise ProtocolError("delegation is expired")
+    app_id = str(
+        headers.get("x-mcp-hub-app-id", "") or ""
+    ).strip()
+    # The envelope form is decided by the presence of the app header, and the
+    # signature must match that exact form. A v3 caller cannot attach an app id
+    # after signing, and a v4 caller cannot drop or swap it, because either
+    # change makes the recomputed payload differ from what was signed.
     payload = canonical_delegation(
         audience=audience,
         client_id=client_id,
         timestamp=timestamp,
         nonce=nonce,
         scopes=scopes,
+        app_id=app_id,
     )
     expected = hmac.new(
         secret.encode("utf-8"),
@@ -343,6 +369,7 @@ def verify_delegation_headers(
         scopes=scopes,
         nonce=nonce,
         timestamp=timestamp,
+        app_id=app_id,
     )
 
 

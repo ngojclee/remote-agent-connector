@@ -63,7 +63,6 @@ class RemoteAgentEndpointTests(unittest.TestCase):
                     "mcp_call",
                     "mcp_health",
                     "skills_health",
-                    "connector_restart_mcp",
                 },
             )
             for tool in tools:
@@ -98,7 +97,6 @@ class RemoteAgentEndpointTests(unittest.TestCase):
                     "mcp_call",
                     "mcp_health",
                     "skills_health",
-                    "connector_restart_mcp",
                 },
             )
             # Every handler must await the inner agent call. A sync handler
