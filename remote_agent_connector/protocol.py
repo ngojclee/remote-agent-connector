@@ -130,6 +130,46 @@ CAPABILITIES_BY_PROFILE = {
     "full_agent": frozenset(FULL_AGENT_CAPABILITIES),
 }
 
+# Relay verbs that change state on the machine. A second identical call of any
+# of these, for the same device and the same arguments, is refused while the
+# first is still in flight. Read verbs are deliberately absent: a model that
+# runs `git status` before and after an edit must get two real answers, and
+# nothing here dedups by arguments across time, only while a call is live.
+# connector.restart_mcp is not listed because no layer publishes it.
+MUTATING_RELAY_TOOLS = frozenset(
+    {
+        "files.write",
+        "files.delete",
+        "files.move",
+        "files.mkdir",
+        "files.upload",
+        "terminal.execute",
+        "ssh.execute",
+        "skills.materialize",
+        "skills.execute",
+        "mcp.call",
+    }
+)
+
+# Cancel is a Hub-to-device frame, not a command. It names exactly one
+# in-flight request_id and carries no arguments, no authority and no assertion,
+# so it cannot be used to reach anything the original request did not already
+# reach. A device that has not implemented it ignores the frame, which leaves
+# the caller on the existing relay timeout rather than breaking the call.
+RELAY_CANCEL_TYPE = "cancel"
+RELAY_CANCEL_FIELDS = frozenset({"v", "type", "request_id", "connector_id"})
+
+
+def build_cancel_frame(*, connector_id: str, request_id: str) -> dict[str, Any]:
+    """Build the only cancel frame shape the relay is allowed to send."""
+    parse_uuid(request_id, field="request_id")
+    return {
+        "v": PROTOCOL_VERSION,
+        "type": RELAY_CANCEL_TYPE,
+        "request_id": str(request_id),
+        "connector_id": str(connector_id),
+    }
+
 
 class ProtocolError(ValueError):
     """Raised when untrusted relay or delegated input is invalid."""

@@ -20,7 +20,11 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from . import __version__
 from .config import RemoteAgentConfig
 from .errors import AgentError
-from .protocol import DelegatedIdentity, verify_delegation_headers
+from .protocol import (
+    DelegatedIdentity,
+    ProtocolError,
+    verify_delegation_headers,
+)
 from .relay import AgentRelayEndpoint, AgentRelayRegistry
 from .service import RemoteAgentService
 from .store import RemoteAgentStore
@@ -691,6 +695,31 @@ def create_app(
             return JSONResponse({"code": "unauthorized"}, status_code=401)
         return JSONResponse(service.online_agents())
 
+    async def cancel_request(request: Request) -> JSONResponse:
+        if not operator_authorized(request):
+            return JSONResponse({"code": "unauthorized"}, status_code=401)
+        try:
+            return JSONResponse(
+                await service.cancel_request(
+                    connector_id=request.path_params["connector_id"],
+                    request_id=request.path_params["request_id"],
+                )
+            )
+        except AgentError as exc:
+            return JSONResponse(
+                {"code": exc.code},
+                status_code=(
+                    404
+                    if exc.code in {"device_offline", "request_not_in_flight"}
+                    else 400
+                ),
+            )
+        except (ProtocolError, ValueError):
+            return JSONResponse(
+                {"code": "invalid_cancel_request"},
+                status_code=400,
+            )
+
     async def operator_audit(request: Request) -> JSONResponse:
         if not operator_authorized(request):
             return JSONResponse({"code": "unauthorized"}, status_code=401)
@@ -718,6 +747,11 @@ def create_app(
             Route("/operator/devices/{connector_id}", delete_device, methods=["DELETE"]),
             Route("/operator/devices", list_devices, methods=["GET"]),
             Route("/agents", list_agents, methods=["GET"]),
+            Route(
+                "/operator/requests/{connector_id}/{request_id}/cancel",
+                cancel_request,
+                methods=["POST"],
+            ),
             Route("/operator/audit", operator_audit, methods=["GET"]),
             WebSocketRoute("/relay", relay_endpoint),
             Mount("/", app=mcp_app),

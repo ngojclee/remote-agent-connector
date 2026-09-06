@@ -12,6 +12,8 @@ from .errors import AgentError
 from .protocol import (
     RESULT_MAX_BYTES,
     ASSERTION_DELIVERY_ALLOWANCE_SECONDS,
+    MUTATING_RELAY_TOOLS,
+    build_cancel_frame,
     DelegatedIdentity,
     ProtocolError,
     capabilities_for_profile,
@@ -42,6 +44,106 @@ class RemoteAgentService:
         self.store = store
         self.clock = clock or utc_now
         self.registry = None
+        # In-flight mutating commands, keyed independently of the caller's
+        # idempotency key so a model-level retry with a fresh key still collides.
+        self._in_flight: dict[tuple[str, str, str], str] = {}
+
+    def _collision_key(
+        self,
+        *,
+        connector_id: str,
+        tool: str,
+        arguments: dict[str, Any],
+    ) -> tuple[str, str, str] | None:
+        if tool not in MUTATING_RELAY_TOOLS:
+            return None
+        return (
+            connector_id,
+            tool,
+            canonical_json_digest({"arguments": arguments}),
+        )
+
+    def _acquire_collision_guard(
+        self,
+        key: tuple[str, str, str] | None,
+        *,
+        request_id: str,
+    ) -> None:
+        if key is None:
+            return
+        held = self._in_flight.get(key)
+        if held is not None:
+            raise AgentError("command_in_flight")
+        self._in_flight[key] = request_id
+
+    def _release_collision_guard(
+        self,
+        key: tuple[str, str, str] | None,
+    ) -> None:
+        if key is not None:
+            self._in_flight.pop(key, None)
+
+    async def cancel_request(
+        self,
+        *,
+        connector_id: str,
+        request_id: str,
+    ) -> dict[str, Any]:
+        """Tell one device to abandon one in-flight request.
+
+        The frame names a single request_id and carries nothing else, so this
+        cannot reach a command the original caller did not already reach. A
+        device that has not implemented cancel leaves the frame unread, and the
+        waiting call stays on its existing relay timeout.
+        """
+        from .protocol import parse_connector_id, parse_uuid
+
+        connector_id = parse_connector_id(connector_id)
+        # Validate the identifier before touching the device, so a malformed
+        # request_id is a bad request rather than a misleading not-found.
+        request_id = parse_uuid(request_id, field="request_id")
+        session_row = self._relay_session(
+            connector_id=connector_id,
+            instance_id=None,
+        )
+        if session_row is None:
+            raise AgentError("device_offline")
+        if self.registry is None:
+            raise AgentError("relay_unavailable")
+        session = await self.registry.get_exact(
+            connector_id=connector_id,
+            instance_id=session_row["instance_id"],
+        )
+        if session is None:
+            raise AgentError("device_offline")
+        future = session.pending.get(str(request_id))
+        if future is None:
+            raise AgentError("request_not_in_flight")
+        await session.websocket.send_json(
+            build_cancel_frame(
+                connector_id=connector_id,
+                request_id=str(request_id),
+            )
+        )
+        # Resolving locally is what releases the collision guard and answers the
+        # caller now. Without it the caller would keep waiting out the full relay
+        # window on a command it has already asked the device to drop.
+        if not future.done():
+            future.set_result({"code": "cancelled"})
+        self.store.append_audit(
+            action="relay.cancel",
+            result_code="cancelled",
+            agent_principal="operator",
+            connector_id=connector_id,
+            request_id=str(request_id),
+            now=self.clock(),
+        )
+        return {
+            "code": "ok",
+            "connector_id": connector_id,
+            "request_id": str(request_id),
+            "state": "cancelled",
+        }
 
     def set_registry(self, registry) -> None:
         self.registry = registry
@@ -518,6 +620,15 @@ class RemoteAgentService:
         future: asyncio.Future[dict[str, Any]] = (
             asyncio.get_running_loop().create_future()
         )
+        # Acquired after the idempotency claim so a claim failure cannot strand
+        # a guard slot, and released by the finally below so every terminal path
+        # (response, timeout, transport error) frees it.
+        collision_key = self._collision_key(
+            connector_id=connector_id,
+            tool=tool,
+            arguments=arguments,
+        )
+        self._acquire_collision_guard(collision_key, request_id=request_id)
         session.pending[request_id] = future
         try:
             delivery_started = time.monotonic()
@@ -595,6 +706,7 @@ class RemoteAgentService:
             raise AgentError("device_offline") from None
         finally:
             session.pending.pop(request_id, None)
+            self._release_collision_guard(collision_key)
         encoded = json.dumps(
             result,
             separators=(",", ":"),

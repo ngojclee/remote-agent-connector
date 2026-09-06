@@ -75,6 +75,40 @@ Two guards keep the separation honest:
 The device applies its own default when `timeout_s` is absent, so a caller that
 needs a long command has to say so explicitly.
 
+## In-flight collision guard
+
+Callers rotate `idempotency_key` on every transport retry, which is correct for
+a retry but leaves a model-level retry unprotected. Two identical mutating
+commands could run at the same time on a real machine.
+
+The connector therefore holds a second guard keyed on the request content
+instead: `(connector_id, tool, canonical digest of arguments)`, independent of
+the caller's idempotency key. The window runs from dispatch until a terminal
+response, a cancel, or the relay timeout. A second identical call inside that
+window is refused with `command_in_flight`.
+
+Guarded tools are the mutating ones: `files.write`, `files.delete`,
+`files.move`, `files.mkdir`, `files.upload`, `terminal.execute`, `ssh.execute`,
+`skills.materialize`, `skills.execute`, `mcp.call`. Read verbs are never
+guarded, and nothing here dedups by arguments across time, so `git status`
+before and after an edit both really run.
+
+`command_in_flight` is a busy signal, not a permission failure and not a device
+failure. It is safe to retry once the first call settles.
+
+## Cancel
+
+`POST /operator/requests/{connector_id}/{request_id}/cancel` sends one cancel
+frame over the device's existing relay WebSocket. It names a single `request_id`
+and carries no arguments, no assertion and no authority, so it cannot reach
+anything the original request did not already reach.
+
+The connector resolves its own waiting caller with `cancelled` immediately and
+frees that request's collision slot. A device that has not implemented cancel
+ignores the frame, so this is safe to deploy before the Windows lane supports
+it. The full wire contract lives in
+`.docs/contracts/remote-agent-relay-control-v1.json`.
+
 ## Tool catalog
 
 ```text
