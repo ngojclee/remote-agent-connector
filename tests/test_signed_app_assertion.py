@@ -17,6 +17,7 @@ import os
 import tempfile
 import time
 import unittest
+import uuid
 from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ from remote_agent_connector.errors import AgentError
 from remote_agent_connector.protocol import (
     APP_ASSERTION_HEADER,
     APP_ASSERTION_MAX_TTL_SECONDS,
+    APP_ASSERTION_CLOCK_SKEW_SECONDS,
     CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS,
     DelegatedIdentity,
     ProtocolError,
@@ -754,6 +756,87 @@ class TimingInvariantTests(unittest.TestCase):
         self.assertEqual(
             parsed["expires_at"] - parsed["issued_at"],
             self.ASSERTION_LIFETIME_FLOOR_SECONDS,
+        )
+
+    def test_consumer_constants_are_the_published_values(self):
+        """These are the numbers contract_revision c1cad13 publishes.
+
+        The connector has no copy of the contract document, so the pin lives
+        here as literals plus the behavioural test below. A device implements
+        the same two values, so moving either constant must fail in both
+        repositories rather than silently split the two sides again.
+        """
+        self.assertEqual(APP_ASSERTION_MAX_TTL_SECONDS, 300)
+        self.assertEqual(APP_ASSERTION_CLOCK_SKEW_SECONDS, 5)
+
+    def test_verifier_accepts_the_whole_published_range(self):
+        """No per-envelope floor may exist: 90, 180 and 300 all verify."""
+        issued = 1_817_000_000
+        keyring = _Keyring(issued_at=issued)
+        verifier = AppAssertionVerifier(
+            anchor=TrustAnchor(
+                root_key_id="root-local-test",
+                root_public_key=b64url_encode(
+                    keyring.root.public_key().public_bytes_raw()
+                ),
+            ),
+            connector_id=DEVICE_CONNECTOR_ID,
+            clock=lambda: issued + 1,
+        )
+        keys = verifier.verify_keyset(keyring.keyset())
+        for ttl in (90, 180, APP_ASSERTION_MAX_TTL_SECONDS):
+            with self.subTest(ttl=ttl):
+                # Each envelope needs its own identity, otherwise the replay
+                # cache correctly rejects the second and third ones.
+                assertion = keyring.assertion(
+                    expires_at=issued + ttl,
+                    assertion_id=str(uuid.uuid4()),
+                    request_id=str(uuid.uuid4()),
+                )
+                verified = verifier.verify(
+                    assertion,
+                    keys=keys,
+                    request_id=assertion["request_id"],
+                    expected_client_id=assertion["client_id"],
+                    expected_app_id=assertion["app_id"],
+                    expected_scopes=tuple(assertion["scopes"]),
+                )
+                self.assertEqual(verified.app_id, "codex")
+
+    def test_verifier_rejects_above_the_published_ceiling(self):
+        issued = 1_817_000_000
+        keyring = _Keyring(issued_at=issued)
+        verifier = AppAssertionVerifier(
+            anchor=TrustAnchor(
+                root_key_id="root-local-test",
+                root_public_key=b64url_encode(
+                    keyring.root.public_key().public_bytes_raw()
+                ),
+            ),
+            connector_id=DEVICE_CONNECTOR_ID,
+            clock=lambda: issued + 1,
+        )
+        keys = verifier.verify_keyset(keyring.keyset())
+        assertion = keyring.assertion(
+            expires_at=issued + APP_ASSERTION_MAX_TTL_SECONDS + 1
+        )
+        with self.assertRaises(ProtocolError):
+            parse_app_assertion(
+                b64url_encode(canonical_json_bytes(assertion))
+            )
+        with self.assertRaises(AppAssertionError) as caught:
+            verifier.verify(
+                assertion,
+                keys=keys,
+                request_id=assertion["request_id"],
+                expected_client_id=assertion["client_id"],
+                expected_app_id=assertion["app_id"],
+                expected_scopes=tuple(assertion["scopes"]),
+            )
+        # The ceiling is a structural bound, so it fails at the shared strict
+        # parser rather than reaching signature verification.
+        self.assertEqual(
+            caught.exception.code, "app assertion lifetime is too long"
         )
 
 
