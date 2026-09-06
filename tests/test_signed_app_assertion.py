@@ -777,7 +777,7 @@ class TimingInvariantTests(unittest.TestCase):
         )
 
     def test_consumer_constants_are_the_published_values(self):
-        """These are the numbers contract_revision c1cad13 publishes.
+        """These are the numbers contract_revision cb3d892 still publishes.
 
         The connector has no copy of the contract document, so the pin lives
         here as literals plus the behavioural test below. A device implements
