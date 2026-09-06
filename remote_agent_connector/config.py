@@ -160,10 +160,12 @@ class RemoteAgentConfig:
         if not 1 <= timeout <= CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS:
             raise RuntimeError(
                 "REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS must be between 1 and "
-                f"{CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS}. A longer wait would "
-                "let the connector hold a device call whose signed app "
-                "assertion can expire before the device verifies it. Raise the "
-                "Hub assertion lifetime floor first."
+                f"{CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS}. This is the device "
+                "round-trip budget, not an assertion budget: a device checks "
+                "assertion freshness when the frame arrives, so the wait is "
+                "independent of the Hub assertion TTL. It must stay inside the "
+                "Hub upstream read timeout, or the Hub reports a failure while "
+                "the device keeps executing the command."
             )
         heartbeat_timeout = int(
             os.getenv(

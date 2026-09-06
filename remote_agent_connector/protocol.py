@@ -41,13 +41,20 @@ APP_ASSERTION_AUDIENCE = "remote-agent-device"
 APP_ASSERTION_HEADER = "x-mcp-hub-app-assertion"
 APP_ASSERTION_MAX_TTL_SECONDS = 300
 APP_ASSERTION_CLOCK_SKEW_SECONDS = 5
-# The connector must never stay waiting on a device call whose assertion can
-# expire before that device verifies it. The Hub refuses to configure an
-# assertion lifetime below 180 seconds, so this ceiling keeps the whole chain
-# inside that floor with slack: 180 is greater than this value plus the skew
-# allowance above plus the 5 second Hub delivery margin. Changing either side
-# without the other fails a test in both repositories.
-CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS = 165
+# Two different clocks, deliberately decoupled.
+#
+# A device verifies assertion freshness when the request frame arrives, not
+# when it produces the response, so the assertion lifetime only has to cover
+# delivery. The relay wait is a separate budget for how long the command may
+# actually run. Conflating them capped legitimate long commands at the TTL.
+#
+# ASSERTION_DELIVERY_ALLOWANCE_SECONDS bounds Hub-to-device frame delivery and
+# is what the Hub's assertion TTL floor must outlive.
+# CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS bounds the full device round trip and
+# must stay inside the Hub's upstream read timeout, or the Hub returns an error
+# while the device keeps working.
+ASSERTION_DELIVERY_ALLOWANCE_SECONDS = 30
+CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS = 600
 ASSERTION_FIELDS = frozenset(
     {
         "schema_version",

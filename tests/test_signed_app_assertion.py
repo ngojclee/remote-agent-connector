@@ -38,6 +38,7 @@ from remote_agent_connector.protocol import (
     APP_ASSERTION_MAX_TTL_SECONDS,
     APP_ASSERTION_CLOCK_SKEW_SECONDS,
     CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS,
+    ASSERTION_DELIVERY_ALLOWANCE_SECONDS,
     DelegatedIdentity,
     ProtocolError,
     b64url_encode,
@@ -644,8 +645,9 @@ class TimingInvariantTests(unittest.TestCase):
     """A device must never verify an assertion the connector already expired.
 
     The Hub refuses to configure an assertion lifetime below 180 seconds, and
-    the connector refuses to wait longer than the ceiling below, so the
-    envelope is still valid at the worst moment the device can check it.
+    a device checks freshness when the frame arrives, so the envelope only has
+    to survive delivery. The relay wait is a separate budget for how long the
+    command may run and is no longer derived from the assertion lifetime.
     """
 
     ASSERTION_LIFETIME_FLOOR_SECONDS = 180
@@ -667,11 +669,20 @@ class TimingInvariantTests(unittest.TestCase):
         }
 
     def test_the_published_numbers_satisfy_the_invariant(self):
+        # The assertion only has to outlive delivery plus skew, so a long
+        # command cannot make a legitimate envelope look expired.
         self.assertGreater(
             self.ASSERTION_LIFETIME_FLOOR_SECONDS,
-            CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS
+            ASSERTION_DELIVERY_ALLOWANCE_SECONDS
             + self.CLOCK_SKEW_SECONDS
             + self.DELIVERY_MARGIN_SECONDS,
+        )
+        # The relay wait is deliberately independent of the TTL now. It is
+        # bounded by the Hub upstream read timeout instead, which the Hub
+        # reports so a mismatch is visible rather than silent.
+        self.assertGreater(
+            CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS,
+            self.ASSERTION_LIFETIME_FLOOR_SECONDS,
         )
         self.assertGreaterEqual(
             APP_ASSERTION_MAX_TTL_SECONDS,
@@ -697,11 +708,18 @@ class TimingInvariantTests(unittest.TestCase):
                         with self.assertRaises(RuntimeError) as caught:
                             RemoteAgentConfig.from_env()
                         self.assertIn(
-                            "Raise the Hub assertion lifetime floor first",
+                            "must stay inside the Hub upstream read timeout",
                             str(caught.exception),
                         )
 
-    def test_assertion_still_verifies_at_the_worst_case_wait(self):
+    def test_assertion_still_verifies_at_the_worst_case_delivery(self):
+        """Freshness is judged when the frame lands, not when it answers.
+
+        The old test proved the envelope survived the whole relay wait. That
+        coupling is what capped long commands at the TTL, so the guarantee is
+        now the delivery window, and the connector refuses a frame that is
+        already expired before it sends.
+        """
         issued = 1_817_000_000
         keyring = _Keyring(issued_at=issued)
         assertion = keyring.assertion(
@@ -726,7 +744,7 @@ class TimingInvariantTests(unittest.TestCase):
         }
         worst_case = (
             issued
-            + CONNECTOR_MAX_REQUEST_TIMEOUT_SECONDS
+            + ASSERTION_DELIVERY_ALLOWANCE_SECONDS
             + self.CLOCK_SKEW_SECONDS
         )
         verifier.clock = lambda: worst_case

@@ -159,7 +159,14 @@ class CapabilityContractTests(unittest.TestCase):
                 store.close()
             temp_dir.cleanup()
 
-    def _run_dispatch(self, *, capability_profile: str, tool: str) -> dict:
+    def _run_dispatch(
+        self,
+        *,
+        capability_profile: str,
+        tool: str,
+        arguments: dict | None = None,
+        app_assertion: dict | None = None,
+    ) -> dict:
         temp_dir = tempfile.TemporaryDirectory()
         store = None
         try:
@@ -208,6 +215,8 @@ class CapabilityContractTests(unittest.TestCase):
                 scopes=("agent:read", "agent:write"),
                 nonce="n" * 24,
                 timestamp=0,
+                app_id="agy2api" if app_assertion is not None else "",
+                app_assertion=app_assertion,
             )
 
             async def call():
@@ -215,7 +224,11 @@ class CapabilityContractTests(unittest.TestCase):
                     identity=identity,
                     tool=tool,
                     connector_id="agy2api-10.11.1.1",
-                    arguments={"root": "workspace", "path": "."},
+                    arguments=(
+                        {"root": "workspace", "path": "."}
+                        if arguments is None
+                        else arguments
+                    ),
                     idempotency_key=f"verify-{tool}-{capability_profile}",
                 )
 
@@ -257,6 +270,64 @@ class CapabilityContractTests(unittest.TestCase):
                     tool=tool,
                 )
                 self.assertEqual(result["code"], "ok")
+
+    def test_expired_assertion_is_refused_before_delivery(self):
+        """The TTL bounds delivery, so an expired envelope must not ship.
+
+        A device judges freshness when the frame lands. Sending one that is
+        already expired only produces a deny the caller cannot act on.
+        """
+        now = datetime.now(timezone.utc).timestamp()
+        with self.assertRaises(AgentError) as raised:
+            self._run_dispatch(
+                capability_profile="full_agent",
+                tool="terminal.execute",
+                app_assertion={
+                    "connector_id": "agy2api-10.11.1.1",
+                    "expires_at": int(now) - 1,
+                    "request_id": str(__import__("uuid").uuid4()),
+                },
+            )
+        self.assertEqual(
+            raised.exception.code, "app_assertion_expired_at_dispatch"
+        )
+
+    def test_live_assertion_still_dispatches(self):
+        now = datetime.now(timezone.utc).timestamp()
+        result = self._run_dispatch(
+            capability_profile="full_agent",
+            tool="terminal.execute",
+            arguments={
+                "command": "pwd",
+                "timeout_s": 5,
+            },
+            app_assertion={
+                "connector_id": "agy2api-10.11.1.1",
+                "expires_at": int(now) + 180,
+                "request_id": str(__import__("uuid").uuid4()),
+            },
+        )
+        self.assertEqual(result["code"], "ok")
+
+    def test_command_budget_beyond_the_relay_window_is_refused(self):
+        """A caller must not be able to ask for more than the relay will hold."""
+        with self.assertRaises(AgentError) as raised:
+            self._run_dispatch(
+                capability_profile="full_agent",
+                tool="terminal.execute",
+                arguments={"command": "sleep 999", "timeout_s": 60},
+            )
+        self.assertEqual(
+            raised.exception.code, "timeout_exceeds_relay_window"
+        )
+
+    def test_command_budget_inside_the_relay_window_is_accepted(self):
+        result = self._run_dispatch(
+            capability_profile="full_agent",
+            tool="terminal.execute",
+            arguments={"command": "pwd", "timeout_s": 5},
+        )
+        self.assertEqual(result["code"], "ok")
 
     def test_relay_frame_carries_the_verified_app_assertion(self):
         """A bound caller must reach the device with its app identity.

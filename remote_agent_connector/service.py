@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from .config import RemoteAgentConfig
 from .errors import AgentError
 from .protocol import (
     RESULT_MAX_BYTES,
+    ASSERTION_DELIVERY_ALLOWANCE_SECONDS,
     DelegatedIdentity,
     ProtocolError,
     capabilities_for_profile,
@@ -17,6 +19,17 @@ from .protocol import (
     public_key_fingerprint,
 )
 from .store import RemoteAgentStore, as_timestamp, utc_now
+
+
+def _unix_seconds(value: Any) -> int:
+    """Normalise an injected clock to epoch seconds.
+
+    Assertion lifetimes are epoch integers, while the service clock is a
+    datetime factory. Tests inject either shape, so both are accepted here.
+    """
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    return int(value)
 class RemoteAgentService:
     def __init__(
         self,
@@ -447,6 +460,31 @@ class RemoteAgentService:
         capability = tool.replace(".", "_")
         if not session.has_capability(capability):
             raise AgentError("capability_not_granted")
+        # Two clocks, two guards. A device checks assertion freshness when the
+        # frame arrives, so the envelope only has to survive delivery, not the
+        # whole command. Refusing a dispatch that is already too late to deliver
+        # keeps a slow queue from presenting an expired assertion that device
+        # enforcement would deny.
+        assertion = identity.app_assertion
+        if (
+            assertion is not None
+            and assertion["expires_at"] <= _unix_seconds(self.clock())
+        ):
+            raise AgentError("app_assertion_expired_at_dispatch")
+        # The per-call budget must fit inside the relay window. Otherwise the
+        # connector gives up first and reports a timeout while the device keeps
+        # running the command with nobody listening.
+        requested_timeout = (
+            arguments.get("timeout_s")
+            if "timeout_s" in arguments
+            else arguments.get("timeout_seconds")
+        )
+        if (
+            isinstance(requested_timeout, int)
+            and not isinstance(requested_timeout, bool)
+            and requested_timeout > self.config.request_timeout_seconds
+        ):
+            raise AgentError("timeout_exceeds_relay_window")
         # A signed assertion already carries the correlation id the device will
         # verify against, so the relay must use exactly that value. The fresh
         # uuid keeps v3 and shadow-mode frames behaving as they do today.
@@ -482,6 +520,7 @@ class RemoteAgentService:
         )
         session.pending[request_id] = future
         try:
+            delivery_started = time.monotonic()
             await session.websocket.send_json(
                 {
                     "v": 1,
@@ -518,6 +557,20 @@ class RemoteAgentService:
                     ),
                 }
             )
+            # Writing the frame is the only part of the call the assertion TTL
+            # has to cover. A slow write is a delivery problem, so it is
+            # audited rather than answered by lengthening the relay wait.
+            if (
+                time.monotonic() - delivery_started
+            ) > ASSERTION_DELIVERY_ALLOWANCE_SECONDS:
+                self.store.append_audit(
+                    action=f"relay.{tool}",
+                    result_code="assertion_delivery_slow",
+                    agent_principal=identity.client_id,
+                    connector_id=connector_id,
+                    request_id=request_id,
+                    now=self.clock(),
+                )
             result = await asyncio.wait_for(
                 future,
                 timeout=self.config.request_timeout_seconds,

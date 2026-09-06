@@ -377,6 +377,12 @@ def create_app(
 
         ``root`` is optional and forwarded only when supplied, so a caller can
         dispatch a bare command. Callers that still send ``root`` keep working.
+
+        ``timeout_s`` is the device-side command budget and the caller has to
+        ask for what it needs. The device applies its own default when the
+        argument is absent, and the connector refuses a value larger than its
+        relay window rather than reporting a timeout on a command that is still
+        running.
         """
         arguments: dict[str, Any] = {
             "command": command,

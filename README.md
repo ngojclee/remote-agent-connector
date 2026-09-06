@@ -41,7 +41,7 @@ Optional:
 
 ```text
 REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION=0
-REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS=120   # 1-165
+REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS=120   # 1-600
 ```
 
 Unset or `0` keeps Phase 2 in shadow mode: a v4 caller whose Hub has no signing
@@ -49,13 +49,31 @@ material still reaches the device with the Phase 1 statement object. Set `1`
 only after the Hub publishes key material and the Windows lane verifies
 cryptographically; then an unsigned v4 call fails closed.
 
-`REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS` is capped at 165 on purpose. The Hub will
-not issue an assertion that lives shorter than 180 seconds, and a device may
-verify one up to 5 seconds early or late on clock skew plus 5 seconds of
-delivery. A longer connector wait could leave it holding a call whose assertion
-expires before the device checks it, which becomes a false deny the moment
-enforcement turns on. The connector refuses to start past the ceiling, so raise
-the Hub floor first if this ever needs to grow.
+## Two clocks
+
+`REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS` is the relay wait: how long the
+connector holds a device call open before it reports `device_timeout`. It is
+bounded at 600 seconds, and the only thing it has to fit inside is the Hub's
+upstream read timeout. If the Hub gives up first, it returns a failure while the
+device keeps executing the command, which is worse than a short ceiling.
+
+The signed app assertion is a separate budget. A device judges freshness when
+the request frame arrives, not when it produces the response, so the assertion
+only has to outlive delivery from Hub to device. That is why the Hub can keep a
+180 second assertion lifetime while the connector waits far longer for a slow
+command. The two numbers were previously tied together, which capped legitimate
+long commands at the assertion lifetime for no security gain.
+
+Two guards keep the separation honest:
+
+- The connector refuses to send a frame whose assertion is already expired, as
+  `app_assertion_expired_at_dispatch`. Delivering it would only earn a deny.
+- A per-call `timeout_s` larger than the relay wait is refused as
+  `timeout_exceeds_relay_window`, so a caller can never ask for a command the
+  transport would abandon mid-run.
+
+The device applies its own default when `timeout_s` is absent, so a caller that
+needs a long command has to say so explicitly.
 
 ## Tool catalog
 
