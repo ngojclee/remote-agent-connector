@@ -219,17 +219,19 @@ class InstanceLivenessTests(unittest.TestCase):
             ("i-crash",),
         )
         self.assertEqual(stored["state"], "online")
+        # A single status read is enough. The inventory route is not the only
+        # path that has to converge the stored flag.
         self.assertEqual(
             service.device_status(connector_id="dev-crash")["connection_state"],
             "offline",
         )
-        self.assertEqual(service.online_agents()["count"], 0)
         closed = self.store._fetchone(
             "select state, disconnected_at from live_instances where instance_id = ?",
             ("i-crash",),
         )
         self.assertEqual(closed["state"], "offline")
-        self.assertIsNotNone(closed["disconnected_at"])
+        self.assertEqual(closed["disconnected_at"], as_timestamp(stale))
+        self.assertEqual(service.online_agents()["count"], 0)
 
     def test_routing_still_prefers_the_freshest_heartbeat(self):
         now = datetime(2026, 9, 6, 12, 0, 0, tzinfo=timezone.utc)

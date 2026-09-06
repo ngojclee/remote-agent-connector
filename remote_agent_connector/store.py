@@ -526,6 +526,9 @@ class RemoteAgentStore:
         instance_id: str,
         fresh_after: datetime,
     ) -> dict[str, Any] | None:
+        # Every liveness read converges the stored flag, so a row cannot stay
+        # `online` simply because nobody happened to call the inventory route.
+        self.mark_stale_instances(stale_before=fresh_after)
         return self._fetchone(
             """
             SELECT instance_id, connector_id, connection_generation,
@@ -543,6 +546,7 @@ class RemoteAgentStore:
         connector_id: str,
         fresh_after: datetime,
     ) -> dict[str, Any] | None:
+        self.mark_stale_instances(stale_before=fresh_after)
         return self._fetchone(
             """
             SELECT instance_id, connector_id, connection_generation,
