@@ -50,9 +50,43 @@ jobs:
       - name: Compile
         run: python -m compileall remote_agent_connector
 
+  # Watchtower restarts the connector and the relay whenever :latest or
+  # :relay-latest moves, and a relay restart drops live device connections.
+  # The tag therefore only advances when a commit can change one of the two
+  # images. The classifier treats anything it cannot explain as runtime, so a
+  # real code change is never swallowed by the path rule.
+  detect:
+    name: Classify runtime change
+    runs-on: ubuntu-latest
+    outputs:
+      runtime: ${{ steps.classify.outputs.runtime }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          output="$(python scripts/ci_runtime_paths.py --base "$BASE" --head "$HEAD")"
+          printf '%s\n' "$output"
+          runtime="$(printf '%s\n' "$output" | sed -n 's/^runtime=//p')"
+          if [ -z "$runtime" ]; then
+            runtime=true
+          fi
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+
   publish:
-    if: github.event_name != 'pull_request'
-    needs: test
+    needs: [test, detect]
+    if: >-
+      github.event_name != 'pull_request'
+      && (
+        github.event_name == 'workflow_dispatch'
+        || startsWith(github.ref, 'refs/tags/')
+        || needs.detect.outputs.runtime == 'true'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
