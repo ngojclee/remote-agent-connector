@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from remote_agent_connector.store import RemoteAgentStore
+from remote_agent_connector.protocol import ProtocolError, parse_client_id
 
 MIGRATIONS = (
     Path(__file__).resolve().parents[1]
@@ -119,6 +120,18 @@ class RequestClientIsolationTests(unittest.TestCase):
                 )
             finally:
                 store.close()
+
+    def test_the_empty_sentinel_is_unreachable_by_construction(self):
+        """A tombstone is not a caller.
+
+        Rows backfilled to an empty client_id stay in the table as history. They
+        must never be claimable, replayed or completed by a live caller, so the
+        parser that gates every inbound client id has to refuse the empty string.
+        """
+        with self.assertRaises(ProtocolError):
+            parse_client_id("")
+        with self.assertRaises(ProtocolError):
+            parse_client_id("   ")
 
 
 class MigrationPreservationTests(unittest.TestCase):

@@ -5,8 +5,13 @@
 -- The rebuild is additive: every existing row is carried over. client_id is
 -- backfilled from the audit trail by request_id, which records the principal
 -- that made the call. Rows with no attributable principal keep the empty
--- string, a value parse_client_id can never produce, so they stay as history
--- and cannot collide with a live caller.
+-- string. That empty string is DELIBERATELY UNREACHABLE, not merely unused:
+-- parse_client_id cannot produce it, so no live caller can ever claim, replay
+-- or complete one of those rows. Treat a blank client_id as a tombstone for a
+-- pre-isolation record, never as a valid caller or a wildcard that matches
+-- every client. Every row in that group was already terminal before this
+-- migration ran, so no in-flight idempotency protection was lost by making
+-- them unreachable.
 CREATE TABLE agent_requests_new (
     connector_id TEXT NOT NULL,
     client_id TEXT NOT NULL DEFAULT '',
