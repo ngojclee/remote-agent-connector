@@ -191,3 +191,21 @@ as live signing material.
 
 v3 callers, and v4 callers whose Hub has no signing material while the require
 flag is unset, keep producing byte-identical relay frames.
+
+## Device liveness
+
+Whether a device is online is derived from the age of its last heartbeat, not
+from the stored `state` column. A row left behind by a crash, a container
+restart, or a dropped relay therefore cannot be reported as live or routed to.
+
+The window is five heartbeat intervals, so 75 seconds of silence at the current
+15 second cadence. That is deliberately wider than
+`REMOTE_AGENT_HEARTBEAT_TIMEOUT_SECONDS`, which is the transport timeout rather
+than a liveness verdict: one lost packet or a short blip must not retire a
+healthy session. If the configured timeout is larger than five intervals, the
+configured value wins.
+
+A sweep closes overdue rows by setting `state = 'offline'` and
+`disconnected_at` to the last heartbeat, never to the sweep time, so a reaped
+row stays distinguishable from a clean disconnect and never claims a device
+outlived its silence. The sweep runs on every inventory and routing read.

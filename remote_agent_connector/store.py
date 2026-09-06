@@ -506,7 +506,13 @@ class RemoteAgentStore:
         result = self._execute(
             """
             UPDATE live_instances
-            SET state = 'offline'
+            SET
+                state = 'offline',
+                -- The last heartbeat is the final evidence the device existed.
+                -- Recording that rather than the sweep time keeps a row closed
+                -- by the reaper distinguishable from one closed by a clean
+                -- disconnect, and never claims a device outlived its silence.
+                disconnected_at = COALESCE(disconnected_at, last_heartbeat_at)
             WHERE state = 'online' AND last_heartbeat_at <= ?
             """,
             (as_timestamp(stale_before),),
@@ -518,21 +524,24 @@ class RemoteAgentStore:
         *,
         connector_id: str,
         instance_id: str,
+        fresh_after: datetime,
     ) -> dict[str, Any] | None:
         return self._fetchone(
             """
             SELECT instance_id, connector_id, connection_generation,
                    context_epoch, state, connected_at, last_heartbeat_at
             FROM live_instances
-            WHERE connector_id = ? AND instance_id = ? AND state = 'online'
+            WHERE connector_id = ? AND instance_id = ?
+              AND state = 'online' AND last_heartbeat_at > ?
             """,
-            (connector_id, instance_id),
+            (connector_id, instance_id, as_timestamp(fresh_after)),
         )
 
     def latest_online_instance(
         self,
         *,
         connector_id: str,
+        fresh_after: datetime,
     ) -> dict[str, Any] | None:
         return self._fetchone(
             """
@@ -540,10 +549,11 @@ class RemoteAgentStore:
                    context_epoch, state, connected_at, last_heartbeat_at
             FROM live_instances
             WHERE connector_id = ? AND state = 'online'
+              AND last_heartbeat_at > ?
             ORDER BY last_heartbeat_at DESC
             LIMIT 1
             """,
-            (connector_id,),
+            (connector_id, as_timestamp(fresh_after)),
         )
 
     def online_agents(
@@ -552,8 +562,8 @@ class RemoteAgentStore:
         stale_before: datetime,
     ) -> list[dict[str, Any]]:
         self.mark_stale_instances(stale_before=stale_before)
-        return self._fetchall(
-            """
+        cutoff = as_timestamp(stale_before)
+        sql = """
             SELECT d.connector_id AS device_id,
                    d.platform,
                    d.capability_profile,
@@ -564,10 +574,11 @@ class RemoteAgentStore:
             JOIN live_instances AS i
               ON i.connector_id = d.connector_id
              AND i.state = 'online'
+              AND i.last_heartbeat_at > ?
             WHERE d.enrollment_state = 'enrolled'
             ORDER BY d.connector_id, i.last_heartbeat_at DESC
             """
-        )
+        return self._fetchall(sql, (cutoff,))
 
     def claim_request(
         self,

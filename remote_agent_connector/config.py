@@ -116,6 +116,17 @@ class RemoteAgentConfig:
     # that into a hard requirement before any device enforcement claim.
     require_signed_app_assertion: bool = False
 
+    @property
+    def instance_stale_seconds(self) -> int:
+        """Liveness window used to decide whether a device row is still real.
+
+        Derived rather than stored so it can never disagree with the heartbeat
+        timeout an operator configured.
+        """
+        from .protocol import instance_stale_seconds
+
+        return instance_stale_seconds(self.heartbeat_timeout_seconds)
+
     @classmethod
     def from_env(cls) -> "RemoteAgentConfig":
         allow_sqlite_dev = _env_flag("REMOTE_AGENT_ALLOW_SQLITE_DEV")

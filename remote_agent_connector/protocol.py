@@ -215,6 +215,25 @@ def capabilities_for_profile(profile: str) -> tuple[str, ...]:
     return tuple(sorted(CAPABILITIES_BY_PROFILE[profile]))
 
 
+HEARTBEAT_INTERVAL_SECONDS = 15
+INSTANCE_STALE_MULTIPLIER = 5
+
+
+def instance_stale_seconds(heartbeat_timeout_seconds: int) -> int:
+    """How long a device may go quiet before its row counts as dead.
+
+    The configured heartbeat timeout alone is too tight to judge liveness with.
+    One dropped packet or a short network blip can pass it while the device is
+    healthy and still being routed to, and closing its row would drop the
+    session. Five missed beats is the accepted margin. The configured timeout is
+    honoured as a floor, so an operator who widens it is never overridden.
+    """
+    return max(
+        int(heartbeat_timeout_seconds),
+        HEARTBEAT_INTERVAL_SECONDS * INSTANCE_STALE_MULTIPLIER,
+    )
+
+
 def _b64decode(value: Any, *, field: str, expected_length: int) -> bytes:
     import base64
 

@@ -258,7 +258,10 @@ class RemoteAgentService:
         device = self.store.get_device(connector_id)
         if device is None:
             raise AgentError("device_not_found")
-        instance = self.store.latest_online_instance(connector_id=connector_id)
+        instance = self.store.latest_online_instance(
+            connector_id=connector_id,
+            fresh_after=self._fresh_after(),
+        )
         capabilities = list(
             capabilities_for_profile(device["capability_profile"])
         )
@@ -289,8 +292,7 @@ class RemoteAgentService:
 
     def online_agents(self) -> dict[str, Any]:
         rows = self.store.online_agents(
-            stale_before=self.clock()
-            - timedelta(seconds=self.config.heartbeat_timeout_seconds)
+            stale_before=self._fresh_after()
         )
         agents = []
         for row in rows:
@@ -384,8 +386,24 @@ class RemoteAgentService:
             return self.store.exact_online_instance(
                 connector_id=connector_id,
                 instance_id=instance_id,
+                fresh_after=self._fresh_after(),
             )
-        return self.store.latest_online_instance(connector_id=connector_id)
+        return self.store.latest_online_instance(
+            connector_id=connector_id,
+            fresh_after=self._fresh_after(),
+        )
+
+    def _fresh_after(self):
+        """The oldest heartbeat that still counts as a live device.
+
+        Liveness is derived from the heartbeat rather than from the stored
+        state flag, so a row left behind by a crash can never be reported or
+        routed as online. The window is generous enough that a brief network
+        blip cannot retire a healthy session.
+        """
+        return self.clock() - timedelta(
+            seconds=self.config.instance_stale_seconds
+        )
 
     async def device_command(
         self,
