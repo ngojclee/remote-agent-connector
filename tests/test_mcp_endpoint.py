@@ -113,6 +113,53 @@ class RemoteAgentEndpointTests(unittest.TestCase):
                 store.close()
             temp_dir.cleanup()
 
+    def test_command_tools_have_no_timeout_default(self):
+        """A published default can silently exceed the relay window.
+
+        ``terminal_execute`` used to default ``timeout_s`` to 300. With the
+        production relay wait at 120 that default made every command look like
+        a permissions or capacity failure. The device owns the default, so the
+        schema must carry none.
+        """
+        temp_dir = tempfile.TemporaryDirectory()
+        store = None
+        try:
+            config = RemoteAgentConfig(
+                database_url=f"sqlite:///{Path(temp_dir.name) / 'remote-agent.sqlite'}",
+                mcp_bearer_token="m" * 48,
+                hub_delegation_secret="d" * 48,
+                operator_bearer_token="o" * 48,
+                hub_audience="remote-agent-connector",
+                private_mcp_url="http://127.0.0.1:3030/mcp",
+                bind_host="127.0.0.1",
+                bind_port=3030,
+                allowed_hosts=("127.0.0.1:3030", "localhost:3030"),
+                allow_insecure_private_mcp=True,
+                trust_proxy_tls=False,
+                request_timeout_seconds=2,
+                heartbeat_timeout_seconds=2,
+            )
+            store = RemoteAgentStore(config.database_url)
+            app = create_app(config, store)
+            tools = {
+                tool.name: tool
+                for tool in asyncio.run(app.state.mcp_server.list_tools())
+            }
+            for name in ("terminal_execute", "ssh_execute"):
+                with self.subTest(tool=name):
+                    schema = tools[name].inputSchema
+                    self.assertIn("timeout_s", schema.get("properties", {}))
+                    self.assertIs(
+                        schema["properties"]["timeout_s"].get("default"),
+                        None,
+                        "an optional parameter may default to None, never a number",
+                    )
+                    self.assertNotIn("timeout_s", schema.get("required", []))
+        finally:
+            if store is not None:
+                store.close()
+            temp_dir.cleanup()
+
     def test_legacy_database_bootstraps_migration_history(self):
         temp_dir = tempfile.TemporaryDirectory()
         store = None

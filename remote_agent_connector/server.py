@@ -369,7 +369,7 @@ def create_app(
         idempotency_key: str,
         command: str,
         root: str | None = None,
-        timeout_s: int = 300,
+        timeout_s: int | None = None,
         cwd: str | None = None,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
@@ -379,16 +379,14 @@ def create_app(
         dispatch a bare command. Callers that still send ``root`` keep working.
 
         ``timeout_s`` is the device-side command budget and the caller has to
-        ask for what it needs. The device applies its own default when the
-        argument is absent, and the connector refuses a value larger than its
-        relay window rather than reporting a timeout on a command that is still
-        running.
+        ask for what it needs. Omitting it forwards nothing, so the device
+        applies its own default instead of a ceiling invented here. The
+        connector refuses a value larger than its relay window rather than
+        reporting a timeout on a command that is still running.
         """
-        arguments: dict[str, Any] = {
-            "command": command,
-            "timeout_s": timeout_s,
-            "cwd": cwd,
-        }
+        arguments: dict[str, Any] = {"command": command, "cwd": cwd}
+        if timeout_s is not None:
+            arguments["timeout_s"] = timeout_s
         if root is not None:
             arguments["root"] = root
         return await call_agent(
@@ -412,23 +410,28 @@ def create_app(
         host: str,
         command: str,
         root: str | None = None,
-        timeout_s: int = 300,
+        timeout_s: int | None = None,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a command through an approved SSH profile.
 
         ``host`` is the canonical host selector. ``root`` is accepted for
         backward compatibility but is not used for SSH execution.
+
+        ``timeout_s`` is only forwarded when the caller asks for it, so the
+        device default applies instead of a ceiling invented here.
         """
+        arguments: dict[str, Any] = {
+            "root": root,
+            "host": host,
+            "command": command,
+        }
+        if timeout_s is not None:
+            arguments["timeout_s"] = timeout_s
         return await call_agent(
             tool="ssh.execute",
             connector_id=profile_id,
-            arguments={
-                "root": root,
-                "host": host,
-                "command": command,
-                "timeout_s": timeout_s,
-            },
+            arguments=arguments,
             identity=delegated_identity(),
             idempotency_key=idempotency_key,
             instance_id=instance_id,
