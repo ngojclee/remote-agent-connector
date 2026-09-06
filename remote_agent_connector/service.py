@@ -605,6 +605,7 @@ class RemoteAgentService:
         )
         outcome, replay = self.store.claim_request(
             connector_id=connector_id,
+            client_id=identity.client_id,
             idempotency_key=idempotency_key,
             request_id=request_id,
             tool_name=tool,
@@ -689,6 +690,7 @@ class RemoteAgentService:
         except asyncio.TimeoutError:
             self.store.complete_request(
                 connector_id=connector_id,
+                client_id=identity.client_id,
                 idempotency_key=idempotency_key,
                 status="failed",
                 result={"code": "device_timeout"},
@@ -698,6 +700,7 @@ class RemoteAgentService:
         except Exception:
             self.store.complete_request(
                 connector_id=connector_id,
+                client_id=identity.client_id,
                 idempotency_key=idempotency_key,
                 status="failed",
                 result={"code": "device_offline"},
@@ -715,6 +718,7 @@ class RemoteAgentService:
         if len(encoded) > RESULT_MAX_BYTES:
             self.store.complete_request(
                 connector_id=connector_id,
+                client_id=identity.client_id,
                 idempotency_key=idempotency_key,
                 status="failed",
                 result={"code": "result_too_large"},
@@ -723,6 +727,7 @@ class RemoteAgentService:
             raise AgentError("result_too_large")
         self.store.complete_request(
             connector_id=connector_id,
+            client_id=identity.client_id,
             idempotency_key=idempotency_key,
             status="completed",
             result=result,

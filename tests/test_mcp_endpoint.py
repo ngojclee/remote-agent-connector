@@ -192,8 +192,20 @@ class RemoteAgentEndpointTests(unittest.TestCase):
             }
             self.assertEqual(
                 versions,
-                {"001_initial.sql", "002_platform.sql"},
+                {
+                    "001_initial.sql",
+                    "002_platform.sql",
+                    "003_request_client_isolation.sql",
+                },
             )
+            # The isolation rebuild must carry the old table's shape forward.
+            request_columns = {
+                row[1]
+                for row in store._connection.execute(
+                    "PRAGMA table_info(agent_requests)"
+                ).fetchall()
+            }
+            self.assertIn("client_id", request_columns)
         finally:
             if store is not None:
                 store.close()

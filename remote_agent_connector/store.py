@@ -588,6 +588,7 @@ class RemoteAgentStore:
         self,
         *,
         connector_id: str,
+        client_id: str,
         idempotency_key: str,
         request_id: str,
         tool_name: str,
@@ -598,12 +599,13 @@ class RemoteAgentStore:
         self._execute(
             """
             INSERT OR IGNORE INTO agent_requests (
-                connector_id, idempotency_key, request_id, tool_name,
-                request_digest, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                connector_id, client_id, idempotency_key, request_id,
+                tool_name, request_digest, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
             """,
             (
                 connector_id,
+                client_id,
                 idempotency_key,
                 request_id,
                 tool_name,
@@ -615,9 +617,9 @@ class RemoteAgentStore:
             """
             SELECT request_id, request_digest, status, result_json
             FROM agent_requests
-            WHERE connector_id = ? AND idempotency_key = ?
+            WHERE connector_id = ? AND client_id = ? AND idempotency_key = ?
             """,
-            (connector_id, idempotency_key),
+            (connector_id, client_id, idempotency_key),
         )
         if existing is None:
             raise RuntimeError("agent request claim was not persisted")
@@ -633,6 +635,7 @@ class RemoteAgentStore:
         self,
         *,
         connector_id: str,
+        client_id: str,
         idempotency_key: str,
         status: str,
         result: dict[str, Any],
@@ -642,7 +645,7 @@ class RemoteAgentStore:
             """
             UPDATE agent_requests
             SET status = ?, result_json = ?, completed_at = ?
-            WHERE connector_id = ? AND idempotency_key = ?
+            WHERE connector_id = ? AND client_id = ? AND idempotency_key = ?
               AND status = 'pending'
             """,
             (
@@ -655,6 +658,7 @@ class RemoteAgentStore:
                 ),
                 as_timestamp(now),
                 connector_id,
+                client_id,
                 idempotency_key,
             ),
         )
