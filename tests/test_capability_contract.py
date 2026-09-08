@@ -348,19 +348,29 @@ class CapabilityContractTests(unittest.TestCase):
                 "client_id": "agy2api",
             },
         )
+        self.assertEqual(frame["idempotency_key"], "frame-codex")
         # The delegation secret never travels; only the resolved identity does.
         flattened = json.dumps(frame)
         self.assertNotIn("d" * 48, flattened)
 
     def test_unbound_caller_frame_is_unchanged(self):
-        """Legacy v3 callers keep producing byte-identical frames."""
+        """Legacy v3 callers keep application identity fields omitted."""
         frames = self._capture_frames(app_id="")
         self.assertEqual(len(frames), 1)
         self.assertEqual(
             set(frames[0]),
-            {"v", "type", "request_id", "tool", "connector_id", "arguments"},
+            {
+                "v",
+                "type",
+                "request_id",
+                "tool",
+                "connector_id",
+                "arguments",
+                "idempotency_key",
+            },
         )
         self.assertNotIn("app_id", frames[0])
+        self.assertEqual(frames[0]["idempotency_key"], "frame-none")
 
     def _capture_frames(self, *, app_id: str) -> list[dict]:
         temp_dir = tempfile.TemporaryDirectory()

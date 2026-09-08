@@ -974,7 +974,7 @@ class RelayFrameTests(unittest.TestCase):
             self.vector["assertion"]["request_id"],
         )
 
-    def test_v3_frame_is_unchanged(self):
+    def test_v3_frame_keeps_app_identity_fields_omitted(self):
         identity = DelegatedIdentity(
             client_id="agy2api",
             scopes=("agent:read",),
@@ -991,8 +991,10 @@ class RelayFrameTests(unittest.TestCase):
                 "tool",
                 "connector_id",
                 "arguments",
+                "idempotency_key",
             },
         )
+        self.assertEqual(frames[0]["idempotency_key"], "frame-v3-0")
 
     def test_assertion_for_another_device_is_not_forwarded(self):
         assertion = {

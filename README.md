@@ -77,9 +77,10 @@ needs a long command has to say so explicitly.
 
 ## In-flight collision guard
 
-Callers rotate `idempotency_key` on every transport retry, which is correct for
-a retry but leaves a model-level retry unprotected. Two identical mutating
-commands could run at the same time on a real machine.
+Transport retries must preserve the same `idempotency_key`. A same-key retry
+with the same intent replays the first result, while the same key with a
+different intent is refused as `idempotency_conflict`. A newly generated key is
+a new operation, not a retry of the original operation.
 
 The connector therefore holds a second guard keyed on the request content
 instead: `(connector_id, tool, canonical digest of arguments)`, independent of
@@ -95,6 +96,11 @@ before and after an edit both really run.
 
 `command_in_flight` is a busy signal, not a permission failure and not a device
 failure. It is safe to retry once the first call settles.
+
+The connector forwards the existing key as the relay frame's top-level
+`idempotency_key` field. It is not added to `arguments`, so the device receives
+the same business argument shape and can apply its own replay protection before
+dispatching a mutation.
 
 ## Cancel
 
@@ -242,7 +248,8 @@ one and the other suite fails. Those keys are test-only and must never be used
 as live signing material.
 
 v3 callers, and v4 callers whose Hub has no signing material while the require
-flag is unset, keep producing byte-identical relay frames.
+flag is unset, keep the application identity fields omitted. Every device call
+still carries its existing `idempotency_key` as top-level relay metadata.
 
 ## Device liveness
 

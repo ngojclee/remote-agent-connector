@@ -484,9 +484,9 @@ def create_app(
         """Materialize approved instruction and reference files into a root.
 
         This is a mutation: it writes files under ``target_root`` and requires
-        both the skills and write grants. The device currently answers with an
-        explicit not-implemented error, so the tool is reachable but performs no
-        work until the Windows Connector ships it.
+        both the skills and write grants. The device plans the approved tree and
+        defaults to a dry run when no apply flag is present in the business
+        arguments.
         """
         return await call_agent(
             tool="skills.materialize",

@@ -641,11 +641,16 @@ class RemoteAgentService:
                     "tool": tool,
                     "connector_id": connector_id,
                     "arguments": arguments,
+                    # Forward the broker's existing idempotency key as relay
+                    # metadata. The device reads this top-level value for
+                    # mutation replay protection; it is deliberately not part
+                    # of the business arguments or regenerated on retry.
+                    "idempotency_key": idempotency_key,
                     # Carry the already-verified application identity to the
                     # device. The connector holds the delegation secret and has
                     # checked the signature, so the device gets the binding
-                    # without ever receiving the secret itself. Omitted entirely
-                    # for legacy v3 callers so their frames are byte-identical.
+                    # without ever receiving the secret itself. These identity
+                    # fields remain omitted for legacy v3 callers.
                     **(
                         {
                             "app_id": identity.app_id,
