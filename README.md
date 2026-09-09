@@ -42,6 +42,7 @@ Optional:
 ```text
 REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION=0
 REMOTE_AGENT_REQUEST_TIMEOUT_SECONDS=120   # 1-600
+REMOTE_AGENT_RELAY_HANDSHAKE_TIMEOUT_SECONDS=15   # 1-60
 ```
 
 Unset or `0` keeps Phase 2 in shadow mode: a v4 caller whose Hub has no signing
@@ -63,6 +64,32 @@ only has to outlive delivery from Hub to device. That is why the Hub can keep a
 180 second assertion lifetime while the connector waits far longer for a slow
 command. The two numbers were previously tied together, which capped legitimate
 long commands at the assertion lifetime for no security gain.
+
+The relay waits at most `REMOTE_AGENT_RELAY_HANDSHAKE_TIMEOUT_SECONDS` (15
+seconds by default) for the first enrollment/authentication frame. This bound
+does not apply to heartbeats or command responses. A client that reaches the
+Python relay receives a fixed diagnostic with `code`, `stage`, `retryable`, and
+`message`; the payload never includes exception text, tokens, public keys,
+signatures, challenge values, request bodies, credentials, or filesystem paths.
+The stable enrollment/authentication codes are:
+
+```text
+relay_challenge_timeout
+enrollment_token_invalid
+enrollment_token_expired
+enrollment_token_consumed
+connector_id_mismatch
+enrollment_signature_invalid
+device_already_enrolled
+device_revoked
+relay_authentication_failed
+relay_ready_failed
+```
+
+An HTTP WebSocket upgrade or reverse-proxy failure happens before the Python
+handler can send a relay frame. The baked Nginx front returns the bounded
+`relay_upgrade_failed` JSON diagnostic instead. Transport TLS remains strict;
+the timeout is not a TLS bypass.
 
 Two guards keep the separation honest:
 

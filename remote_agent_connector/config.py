@@ -115,6 +115,9 @@ class RemoteAgentConfig:
     # still reaches the device with the Phase 1 statement. Set the flag to turn
     # that into a hard requirement before any device enforcement claim.
     require_signed_app_assertion: bool = False
+    # Only the initial enrollment/authentication frame is bounded by this
+    # timeout. Heartbeats and command responses use their own windows.
+    relay_handshake_timeout_seconds: int = 15
 
     @property
     def instance_stale_seconds(self) -> int:
@@ -177,6 +180,16 @@ class RemoteAgentConfig:
             raise RuntimeError(
                 "REMOTE_AGENT_HEARTBEAT_TIMEOUT_SECONDS must be 1-3600"
             )
+        handshake_timeout = int(
+            os.getenv(
+                "REMOTE_AGENT_RELAY_HANDSHAKE_TIMEOUT_SECONDS",
+                "15",
+            )
+        )
+        if not 1 <= handshake_timeout <= 60:
+            raise RuntimeError(
+                "REMOTE_AGENT_RELAY_HANDSHAKE_TIMEOUT_SECONDS must be 1-60"
+            )
         mcp_bearer_token = _required_secret(
             "REMOTE_AGENT_MCP_BEARER_TOKEN"
         )
@@ -224,4 +237,5 @@ class RemoteAgentConfig:
             require_signed_app_assertion=_env_flag(
                 "REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION"
             ),
+            relay_handshake_timeout_seconds=handshake_timeout,
         )

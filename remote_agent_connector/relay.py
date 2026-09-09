@@ -9,7 +9,7 @@ from typing import Any
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from .config import RemoteAgentConfig
-from .errors import AgentError
+from .errors import AgentError, relay_diagnostic
 from .protocol import (
     RELAY_MAX_MESSAGE_BYTES,
     PROTOCOL_VERSION,
@@ -99,17 +99,19 @@ class AgentRelayEndpoint:
 
     async def handle(self, websocket: WebSocket) -> None:
         if not self._is_secure_connection(websocket):
-            await websocket.close(code=1008)
+            await self._safe_close(websocket, "relay_upgrade_failed")
             return
         await websocket.accept()
         session: AgentRelaySession | None = None
         registered = False
         connection_generation = str(uuid.uuid4())
+        stage = "challenge"
         try:
             first_challenge = self.service.issue_relay_challenge()
             await websocket.send_json(first_challenge)
-            message = await self._receive_message(websocket)
+            message = await self._receive_handshake_message(websocket)
             if message.get("type") == "enroll":
+                stage = "enrollment"
                 required = {
                     "v",
                     "type",
@@ -147,28 +149,51 @@ class AgentRelayEndpoint:
                 )
                 first_challenge = self.service.issue_relay_challenge()
                 await websocket.send_json(first_challenge)
-                message = await self._receive_message(websocket)
+                stage = "authentication"
+                message = await self._receive_handshake_message(websocket)
+            else:
+                stage = "authentication"
             session = await self._authenticate_session(
                 websocket=websocket,
                 challenge=first_challenge,
                 message=message,
                 connection_generation=connection_generation,
             )
+            stage = "ready"
             await self.registry.register(session)
             registered = True
-            await websocket.send_json(
-                {
-                    "v": PROTOCOL_VERSION,
-                    "type": "ready",
-                    "connector_id": session.connector_id,
-                    "instance_id": session.instance_id,
-                    "capabilities": list(session.capabilities),
-                }
-            )
+            try:
+                await websocket.send_json(
+                    {
+                        "v": PROTOCOL_VERSION,
+                        "type": "ready",
+                        "connector_id": session.connector_id,
+                        "instance_id": session.instance_id,
+                        "capabilities": list(session.capabilities),
+                    }
+                )
+            except (RuntimeError, WebSocketDisconnect):
+                raise AgentError("relay_ready_failed") from None
+            stage = "session"
             await self._serve_session(session)
-        except (AgentError, ProtocolError, ValueError):
-            await self._safe_send_error(websocket)
-            await websocket.close(code=1008)
+        except AgentError as exc:
+            diagnostic = relay_diagnostic(exc.code, stage=stage)
+            await self._safe_send_error(websocket, diagnostic)
+            await self._safe_close(websocket, diagnostic["code"])
+        except (ProtocolError, ValueError):
+            protocol_code = (
+                "relay_authentication_failed"
+                if stage == "authentication"
+                else "relay_ready_failed"
+                if stage == "ready"
+                else "relay_protocol_error"
+            )
+            diagnostic = relay_diagnostic(
+                protocol_code,
+                stage=stage,
+            )
+            await self._safe_send_error(websocket, diagnostic)
+            await self._safe_close(websocket, diagnostic["code"])
         except WebSocketDisconnect:
             pass
         finally:
@@ -181,6 +206,18 @@ class AgentRelayEndpoint:
                             session.connection_generation
                         ),
                     )
+
+    async def _receive_handshake_message(
+        self,
+        websocket: WebSocket,
+    ) -> dict[str, Any]:
+        try:
+            return await asyncio.wait_for(
+                self._receive_message(websocket),
+                timeout=self.config.relay_handshake_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            raise AgentError("relay_challenge_timeout") from None
 
     async def _authenticate_session(
         self,
@@ -331,14 +368,21 @@ class AgentRelayEndpoint:
             raise ProtocolError("relay message contains unsupported fields")
 
     @staticmethod
-    async def _safe_send_error(websocket: WebSocket) -> None:
+    async def _safe_send_error(
+        websocket: WebSocket,
+        diagnostic: dict[str, Any] | None = None,
+    ) -> None:
         try:
             await websocket.send_json(
-                {
-                    "v": PROTOCOL_VERSION,
-                    "type": "error",
-                    "code": "relay_rejected",
-                }
+                diagnostic
+                or relay_diagnostic("relay_protocol_error")
             )
-        except RuntimeError:
+        except (RuntimeError, WebSocketDisconnect):
+            pass
+
+    @staticmethod
+    async def _safe_close(websocket: WebSocket, reason: str) -> None:
+        try:
+            await websocket.close(code=1008, reason=str(reason)[:64])
+        except (RuntimeError, WebSocketDisconnect):
             pass

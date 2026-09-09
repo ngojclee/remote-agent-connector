@@ -195,20 +195,30 @@ class RemoteAgentService:
         from .protocol import (
             enrollment_payload,
             parse_connector_id,
-            parse_public_key,
             validate_platform,
             verify_ed25519,
         )
 
         now = self.clock()
+        connector_id = parse_connector_id(connector_id)
         platform = validate_platform(platform)
-        token_record = self.store.consume_enrollment_token(
-            raw_token=enrollment_token,
-            connector_id=connector_id,
-            now=now,
+        token_status, token_record = (
+            self.store.consume_enrollment_token_detailed(
+                raw_token=enrollment_token,
+                connector_id=connector_id,
+                now=now,
+            )
         )
+        token_error = {
+            "invalid": "enrollment_token_invalid",
+            "expired": "enrollment_token_expired",
+            "consumed": "enrollment_token_consumed",
+            "connector_mismatch": "connector_id_mismatch",
+        }.get(token_status)
+        if token_error is not None:
+            raise AgentError(token_error)
         if token_record is None:
-            raise AgentError("invalid_enrollment_token")
+            raise AgentError("enrollment_token_invalid")
         if not self.store.consume_challenge(
             challenge_id=challenge_id,
             challenge=challenge,
@@ -229,7 +239,12 @@ class RemoteAgentService:
                 signature_b64=signature,
             )
         except ProtocolError:
-            raise AgentError("invalid_signature") from None
+            raise AgentError("enrollment_signature_invalid") from None
+        existing = self.store.get_device(connector_id)
+        if existing is not None:
+            if existing["enrollment_state"] == "revoked":
+                raise AgentError("device_revoked")
+            raise AgentError("device_already_enrolled")
         enrolled = self.store.enroll_device(
             connector_id=connector_id,
             public_key=public_key,
@@ -239,6 +254,9 @@ class RemoteAgentService:
             platform=platform,
         )
         if not enrolled:
+            existing = self.store.get_device(connector_id)
+            if existing is not None and existing["enrollment_state"] == "revoked":
+                raise AgentError("device_revoked")
             raise AgentError("device_already_enrolled")
         self.store.append_audit(
             action="device.enrolled",
@@ -286,6 +304,8 @@ class RemoteAgentService:
         )
 
         now = self.clock()
+        connector_id = parse_connector_id(connector_id)
+        instance_id = parse_instance_id(instance_id)
         if not self.store.consume_challenge(
             challenge_id=challenge_id,
             challenge=challenge,
@@ -293,7 +313,9 @@ class RemoteAgentService:
         ):
             raise AgentError("invalid_challenge")
         device = self.store.get_device(connector_id)
-        if device is None or device["enrollment_state"] != "enrolled":
+        if device is None:
+            raise AgentError("relay_authentication_failed")
+        if device["enrollment_state"] != "enrolled":
             raise AgentError("device_revoked")
         payload = relay_auth_payload(
             challenge_id=challenge_id,
@@ -309,7 +331,7 @@ class RemoteAgentService:
                 signature_b64=signature,
             )
         except ProtocolError:
-            raise AgentError("invalid_signature") from None
+            raise AgentError("relay_authentication_failed") from None
         accepted = self.store.upsert_presence(
             connector_id=connector_id,
             instance_id=instance_id,

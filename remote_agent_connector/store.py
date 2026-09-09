@@ -177,7 +177,27 @@ class RemoteAgentStore:
         connector_id: str,
         now: datetime,
     ) -> dict[str, Any] | None:
-        token_hash = hash_opaque(raw_token)
+        status, record = self.consume_enrollment_token_detailed(
+            raw_token=raw_token,
+            connector_id=connector_id,
+            now=now,
+        )
+        return record if status == "accepted" else None
+
+    def consume_enrollment_token_detailed(
+        self,
+        *,
+        raw_token: str,
+        connector_id: str,
+        now: datetime,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Consume a token while retaining a safe reason for relay mapping.
+
+        The raw token is hashed before the database lookup and is never part
+        of the returned status. The compatibility wrapper above preserves the
+        old ``dict | None`` API for non-relay callers.
+        """
+        token_hash = hash_opaque(str(raw_token or ""))
         current = as_timestamp(now)
         with self.transaction():
             row = self._fetchone(
@@ -189,14 +209,15 @@ class RemoteAgentStore:
                 """,
                 (token_hash,),
             )
-            if (
-                row is None
-                or row["consumed_at"] is not None
-                or row["expires_at"] <= current
-                or row["connector_id"] != connector_id
-            ):
-                return None
-            self._execute(
+            if row is None:
+                return "invalid", None
+            if row["connector_id"] != connector_id:
+                return "connector_mismatch", None
+            if row["consumed_at"] is not None:
+                return "consumed", None
+            if row["expires_at"] <= current:
+                return "expired", None
+            updated = self._execute(
                 """
                 UPDATE enrollment_tokens
                 SET consumed_at = ?
@@ -204,7 +225,9 @@ class RemoteAgentStore:
                 """,
                 (current, token_hash),
             )
-            return row
+            if updated.rowcount != 1:
+                return "consumed", None
+            return "accepted", row
 
     def create_challenge(
         self,
@@ -237,6 +260,8 @@ class RemoteAgentStore:
         challenge: str,
         now: datetime,
     ) -> bool:
+        challenge_id = str(challenge_id or "")
+        challenge = str(challenge or "")
         current = as_timestamp(now)
         with self.transaction():
             row = self._fetchone(
