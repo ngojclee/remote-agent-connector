@@ -68,28 +68,67 @@ long commands at the assertion lifetime for no security gain.
 The relay waits at most `REMOTE_AGENT_RELAY_HANDSHAKE_TIMEOUT_SECONDS` (15
 seconds by default) for the first enrollment/authentication frame. This bound
 does not apply to heartbeats or command responses. A client that reaches the
-Python relay receives a fixed diagnostic with `code`, `stage`, `retryable`, and
-`message`; the payload never includes exception text, tokens, public keys,
-signatures, challenge values, request bodies, credentials, or filesystem paths.
-The stable enrollment/authentication codes are:
+Python relay receives a fixed diagnostic with `error_contract`, `code`, `stage`,
+`retryable`, and `message`; the payload never includes exception text, tokens,
+public keys, signatures, challenge values, request bodies, credentials, or
+filesystem paths. The stable contract is:
 
 ```text
+relay_tls_failed          # local/client-side mapping; no relay frame exists
+relay_upgrade_failed
 relay_challenge_timeout
+relay_challenge_invalid
 enrollment_token_invalid
 enrollment_token_expired
 enrollment_token_consumed
 connector_id_mismatch
 enrollment_signature_invalid
+enrollment_challenge_invalid
 device_already_enrolled
 device_revoked
 relay_authentication_failed
 relay_ready_failed
+relay_protocol_error
 ```
 
 An HTTP WebSocket upgrade or reverse-proxy failure happens before the Python
 handler can send a relay frame. The baked Nginx front returns the bounded
 `relay_upgrade_failed` JSON diagnostic instead. Transport TLS remains strict;
 the timeout is not a TLS bypass.
+
+The canonical error vocabulary is published in
+`contracts/remote-agent-relay-errors-v1.json`. Python relay frames carry the
+same `error_contract` identifier and the Nginx upgrade response carries it as
+well. `relay_tls_failed` is transport-only: a certificate failure occurs
+before HTTP/WebSocket application data exists, so the client or operator must
+surface that code locally rather than expecting a relay error frame.
+The operator can read the same closed vocabulary at
+`GET /operator/relay-errors/v1` with the operator bearer.
+
+## Operator CA publication
+
+Set the optional path below to a public CA certificate mounted read-only into
+the connector. The file must contain exactly one CA certificate with
+`BasicConstraints CA=TRUE`; it must not contain a private key:
+
+```text
+REMOTE_AGENT_PUBLIC_CA_CERT_PATH=/etc/remote-agent/tls/remote-agent-ca.crt
+```
+
+An operator can read the versioned publication route with the existing
+operator bearer:
+
+```text
+GET /operator/relay-ca/v1
+```
+
+The response contains only the normalized public certificate, SHA-256
+fingerprint, subject/issuer and validity metadata. If the path is unset,
+missing or invalid, the route returns a bounded `503` code:
+`relay_ca_artifact_unconfigured`, `relay_ca_artifact_unavailable` or
+`relay_ca_artifact_invalid`. The route is publication-only: neither the
+connector nor a client auto-trusts a certificate fetched from it. Verify the
+fingerprint out of band and install the CA explicitly on approved clients.
 
 Two guards keep the separation honest:
 

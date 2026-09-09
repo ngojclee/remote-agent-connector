@@ -56,17 +56,21 @@ class RelayDiagnosticTests(unittest.TestCase):
             "C:\\private\\path",
         )
         codes = (
+            "relay_tls_failed",
             "relay_upgrade_failed",
             "relay_challenge_timeout",
+            "relay_challenge_invalid",
             "enrollment_token_invalid",
             "enrollment_token_expired",
             "enrollment_token_consumed",
             "connector_id_mismatch",
             "enrollment_signature_invalid",
+            "enrollment_challenge_invalid",
             "device_already_enrolled",
             "device_revoked",
             "relay_authentication_failed",
             "relay_ready_failed",
+            "relay_protocol_error",
         )
         for code in codes:
             with self.subTest(code=code):
@@ -76,6 +80,7 @@ class RelayDiagnosticTests(unittest.TestCase):
                     {
                         "v",
                         "type",
+                        "error_contract",
                         "code",
                         "stage",
                         "retryable",
@@ -85,6 +90,47 @@ class RelayDiagnosticTests(unittest.TestCase):
                 rendered = json.dumps(payload)
                 for value in sensitive:
                     self.assertNotIn(value, rendered)
+
+    def test_internal_keywords_map_to_versioned_codes(self):
+        cases = (
+            (
+                "invalid_challenge",
+                "enrollment",
+                "enrollment_challenge_invalid",
+            ),
+            ("invalid_challenge", "authentication", "relay_challenge_invalid"),
+            (
+                "invalid_signature",
+                "enrollment",
+                "enrollment_signature_invalid",
+            ),
+            (
+                "invalid_signature",
+                "authentication",
+                "relay_authentication_failed",
+            ),
+            ("capabilities_not_granted", "ready", "relay_ready_failed"),
+        )
+        for internal, stage, expected in cases:
+            with self.subTest(internal=internal, stage=stage):
+                payload = relay_diagnostic(internal, stage=stage)
+                self.assertEqual(payload["code"], expected)
+                self.assertEqual(
+                    payload["error_contract"],
+                    "business-mcp-remote-agent-relay-error-v1",
+                )
+
+    def test_unknown_internal_error_is_bounded_and_does_not_echo_input(self):
+        internal = (
+            "unexpected-provider-error "
+            "raw-enrollment-token public-key-material"
+        )
+        payload = relay_diagnostic(internal, stage="authentication")
+        self.assertEqual(payload["code"], "relay_protocol_error")
+        rendered = json.dumps(payload)
+        self.assertNotIn(internal, rendered)
+        self.assertNotIn("raw-enrollment-token", rendered)
+        self.assertNotIn("public-key-material", rendered)
 
     def test_enrollment_token_statuses_are_distinguished_without_raw_token(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -357,6 +403,10 @@ class RelayDiagnosticTests(unittest.TestCase):
         self.assertIn("ssl_protocols TLSv1.2 TLSv1.3;", config)
         self.assertIn("proxy_intercept_errors on;", config)
         self.assertIn("error_page 400 401 403 404 405 408 426", config)
+        self.assertIn(
+            '"error_contract":"business-mcp-remote-agent-relay-error-v1"',
+            config,
+        )
         self.assertIn('"code":"relay_upgrade_failed"', config)
         self.assertNotIn("proxy_ssl_verify off", config)
         self.assertNotIn("ssl_verify_client off", config)

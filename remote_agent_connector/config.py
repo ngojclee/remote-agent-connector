@@ -118,6 +118,9 @@ class RemoteAgentConfig:
     # Only the initial enrollment/authentication frame is bounded by this
     # timeout. Heartbeats and command responses use their own windows.
     relay_handshake_timeout_seconds: int = 15
+    # Optional public CA artifact used only by the operator publication route.
+    # It is never loaded as a trust anchor by the connector.
+    public_ca_cert_path: str | None = None
 
     @property
     def instance_stale_seconds(self) -> int:
@@ -190,6 +193,10 @@ class RemoteAgentConfig:
             raise RuntimeError(
                 "REMOTE_AGENT_RELAY_HANDSHAKE_TIMEOUT_SECONDS must be 1-60"
             )
+        public_ca_cert_path = os.getenv(
+            "REMOTE_AGENT_PUBLIC_CA_CERT_PATH",
+            "",
+        ).strip() or None
         mcp_bearer_token = _required_secret(
             "REMOTE_AGENT_MCP_BEARER_TOKEN"
         )
@@ -238,4 +245,5 @@ class RemoteAgentConfig:
                 "REMOTE_AGENT_REQUIRE_SIGNED_ASSERTION"
             ),
             relay_handshake_timeout_seconds=handshake_timeout,
+            public_ca_cert_path=public_ca_cert_path,
         )

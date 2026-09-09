@@ -20,6 +20,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from . import __version__
 from .config import RemoteAgentConfig
 from .errors import AgentError
+from .errors import relay_error_contract
 from .protocol import (
     DelegatedIdentity,
     ProtocolError,
@@ -28,6 +29,11 @@ from .protocol import (
 from .relay import AgentRelayEndpoint, AgentRelayRegistry
 from .service import RemoteAgentService
 from .store import RemoteAgentStore
+from .tls_publication import (
+    RELAY_CA_PUBLICATION_CONTRACT,
+    RelayCaArtifactError,
+    load_public_ca_artifact,
+)
 
 
 READ_ONLY = ToolAnnotations(
@@ -607,6 +613,32 @@ def create_app(
             }
         )
 
+    async def relay_error_contract_route(
+        request: Request,
+    ) -> JSONResponse:
+        if not operator_authorized(request):
+            return JSONResponse({"code": "unauthorized"}, status_code=401)
+        return JSONResponse(relay_error_contract())
+
+    async def relay_ca_publication(request: Request) -> JSONResponse:
+        if not operator_authorized(request):
+            return JSONResponse({"code": "unauthorized"}, status_code=401)
+        try:
+            return JSONResponse(
+                load_public_ca_artifact(
+                    resolved_config.public_ca_cert_path
+                )
+            )
+        except RelayCaArtifactError as exc:
+            return JSONResponse(
+                {
+                    "contract": RELAY_CA_PUBLICATION_CONTRACT,
+                    "code": exc.code,
+                    "message": exc.message,
+                },
+                status_code=503,
+            )
+
     def operator_authorized(request: Request) -> bool:
         header = request.headers.get("authorization", "")
         if not header.startswith("Bearer "):
@@ -741,6 +773,16 @@ def create_app(
     app = Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route(
+                "/operator/relay-errors/v1",
+                relay_error_contract_route,
+                methods=["GET"],
+            ),
+            Route(
+                "/operator/relay-ca/v1",
+                relay_ca_publication,
+                methods=["GET"],
+            ),
             Route("/operator/enrollment-tokens", issue_enrollment, methods=["POST"]),
             Route("/operator/devices/{connector_id}/revoke", revoke_device, methods=["POST"]),
             Route("/operator/devices/{connector_id}", rename_device, methods=["PUT"]),

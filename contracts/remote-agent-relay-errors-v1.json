@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "business-mcp-remote-agent-relay-error-v1",
+  "protocol_version": 1,
+  "response": {
+    "type": "object",
+    "required": [
+      "v",
+      "type",
+      "error_contract",
+      "code",
+      "stage",
+      "retryable",
+      "message"
+    ],
+    "properties": {
+      "v": {
+        "const": 1
+      },
+      "type": {
+        "const": "error"
+      },
+      "error_contract": {
+        "const": "business-mcp-remote-agent-relay-error-v1"
+      },
+      "code": {
+        "enum": [
+          "relay_tls_failed",
+          "relay_upgrade_failed",
+          "relay_challenge_timeout",
+          "relay_challenge_invalid",
+          "enrollment_token_invalid",
+          "enrollment_token_expired",
+          "enrollment_token_consumed",
+          "connector_id_mismatch",
+          "enrollment_signature_invalid",
+          "enrollment_challenge_invalid",
+          "device_already_enrolled",
+          "device_revoked",
+          "relay_authentication_failed",
+          "relay_ready_failed",
+          "relay_protocol_error"
+        ]
+      },
+      "stage": {
+        "enum": [
+          "tls",
+          "upgrade",
+          "challenge",
+          "enrollment",
+          "authentication",
+          "ready",
+          "session"
+        ]
+      },
+      "retryable": {
+        "type": "boolean"
+      },
+      "message": {
+        "type": "string",
+        "maxLength": 128
+      }
+    },
+    "additionalProperties": false
+  },
+  "codes": [
+    {
+      "code": "relay_tls_failed",
+      "stage": "tls",
+      "retryable": true,
+      "transport_only": true,
+      "message": "Relay TLS validation failed."
+    },
+    {
+      "code": "relay_upgrade_failed",
+      "stage": "upgrade",
+      "retryable": true,
+      "message": "Relay WebSocket upgrade failed."
+    },
+    {
+      "code": "relay_challenge_timeout",
+      "stage": "challenge",
+      "retryable": true,
+      "message": "Relay challenge timed out."
+    },
+    {
+      "code": "relay_challenge_invalid",
+      "stage": "challenge",
+      "retryable": false,
+      "message": "Relay challenge is invalid."
+    },
+    {
+      "code": "enrollment_token_invalid",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "Enrollment token is invalid."
+    },
+    {
+      "code": "enrollment_token_expired",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "Enrollment token has expired."
+    },
+    {
+      "code": "enrollment_token_consumed",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "Enrollment token has already been consumed."
+    },
+    {
+      "code": "connector_id_mismatch",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "Connector ID does not match the enrollment."
+    },
+    {
+      "code": "enrollment_signature_invalid",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "Enrollment signature is invalid."
+    },
+    {
+      "code": "enrollment_challenge_invalid",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "Enrollment challenge is invalid."
+    },
+    {
+      "code": "device_already_enrolled",
+      "stage": "enrollment",
+      "retryable": false,
+      "message": "This connector is already enrolled."
+    },
+    {
+      "code": "device_revoked",
+      "stage": "authentication",
+      "retryable": false,
+      "message": "This device has been revoked."
+    },
+    {
+      "code": "relay_authentication_failed",
+      "stage": "authentication",
+      "retryable": false,
+      "message": "Relay authentication failed."
+    },
+    {
+      "code": "relay_ready_failed",
+      "stage": "ready",
+      "retryable": true,
+      "message": "Relay session could not become ready."
+    },
+    {
+      "code": "relay_protocol_error",
+      "stage": "session",
+      "retryable": false,
+      "message": "Relay message is invalid."
+    }
+  ]
+}

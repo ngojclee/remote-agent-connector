@@ -1,0 +1,13 @@
+{
+  "contract": "business-mcp-remote-agent-relay-leaf-v1",
+  "subject_alt_names": [
+    "10.21.4.101"
+  ],
+  "basic_constraints": {
+    "ca": false
+  },
+  "extended_key_usage": [
+    "serverAuth"
+  ],
+  "private_key_storage": "generated-outside-repository"
+}

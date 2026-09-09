@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract": "business-mcp-remote-agent-ca-publication-v1",
+  "response": {
+    "type": "object",
+    "required": [
+      "contract",
+      "certificate_pem",
+      "sha256_fingerprint",
+      "subject",
+      "issuer",
+      "not_before",
+      "not_after",
+      "ca"
+    ],
+    "properties": {
+      "contract": {
+        "const": "business-mcp-remote-agent-ca-publication-v1"
+      },
+      "certificate_pem": {
+        "type": "string",
+        "maxLength": 131072
+      },
+      "sha256_fingerprint": {
+        "type": "string",
+        "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){31}$"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "issuer": {
+        "type": "string"
+      },
+      "not_before": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "not_after": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "ca": {
+        "const": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "failure_codes": [
+    "relay_ca_artifact_unconfigured",
+    "relay_ca_artifact_unavailable",
+    "relay_ca_artifact_invalid"
+  ],
+  "trust_model": "publication_only_never_auto_trusted"
+}
