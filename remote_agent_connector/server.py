@@ -18,6 +18,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 
 from . import __version__
+from .certificate_authority import (
+    RELAY_CERT_ISSUANCE_CONTRACT,
+    RelayCertificateError,
+    sign_relay_csr,
+)
 from .config import RemoteAgentConfig
 from .errors import AgentError
 from .errors import relay_error_contract
@@ -639,6 +644,47 @@ def create_app(
                 status_code=503,
             )
 
+    async def issue_relay_certificate(request: Request) -> JSONResponse:
+        if not operator_authorized(request):
+            return JSONResponse({"code": "unauthorized"}, status_code=401)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict) or set(body) != {"csr_pem"}:
+                raise ValueError
+            return JSONResponse(
+                sign_relay_csr(
+                    csr_pem=str(body["csr_pem"]),
+                    certificate_path=resolved_config.public_ca_cert_path,
+                    private_key_path=resolved_config.ca_private_key_path,
+                    relay_ip=resolved_config.relay_ip,
+                    validity_days=(
+                        resolved_config.relay_certificate_validity_days
+                    ),
+                )
+            )
+        except RelayCertificateError as exc:
+            return JSONResponse(
+                {
+                    "contract": RELAY_CERT_ISSUANCE_CONTRACT,
+                    "code": exc.code,
+                    "message": exc.message,
+                },
+                status_code=(
+                    503
+                    if exc.code.startswith("relay_ca_signer_")
+                    else 400
+                ),
+            )
+        except Exception:
+            return JSONResponse(
+                {
+                    "contract": RELAY_CERT_ISSUANCE_CONTRACT,
+                    "code": "relay_certificate_request_invalid",
+                    "message": "Relay certificate request is invalid.",
+                },
+                status_code=400,
+            )
+
     def operator_authorized(request: Request) -> bool:
         header = request.headers.get("authorization", "")
         if not header.startswith("Bearer "):
@@ -782,6 +828,11 @@ def create_app(
                 "/operator/relay-ca/v1",
                 relay_ca_publication,
                 methods=["GET"],
+            ),
+            Route(
+                "/operator/relay-certificates/v1",
+                issue_relay_certificate,
+                methods=["POST"],
             ),
             Route("/operator/enrollment-tokens", issue_enrollment, methods=["POST"]),
             Route("/operator/devices/{connector_id}/revoke", revoke_device, methods=["POST"]),

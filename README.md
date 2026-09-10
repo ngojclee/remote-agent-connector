@@ -112,7 +112,7 @@ the connector. The file must contain exactly one CA certificate with
 `BasicConstraints CA=TRUE`; it must not contain a private key:
 
 ```text
-REMOTE_AGENT_PUBLIC_CA_CERT_PATH=/etc/remote-agent/tls/remote-agent-ca.crt
+REMOTE_AGENT_PUBLIC_CA_CERT_PATH=/etc/remote-agent/ca/remote-agent-ca.crt
 ```
 
 An operator can read the versioned publication route with the existing
@@ -129,6 +129,42 @@ missing or invalid, the route returns a bounded `503` code:
 `relay_ca_artifact_invalid`. The route is publication-only: neither the
 connector nor a client auto-trusts a certificate fetched from it. Verify the
 fingerprint out of band and install the CA explicitly on approved clients.
+
+## Relay certificate issuance
+
+This service is also the CA signer. Point it at the matching CA private key and
+the address the relay actually serves:
+
+```text
+REMOTE_AGENT_CA_PRIVATE_KEY_PATH=/etc/remote-agent/ca/remote-agent-ca.key
+REMOTE_AGENT_RELAY_IP=10.21.4.101
+REMOTE_AGENT_RELAY_CERT_VALIDITY_DAYS=90
+```
+
+With the key unset, publication keeps working and issuance answers
+`relay_ca_signer_unconfigured`. The CA key is never returned by any route and
+never leaves this container; the relay host and every client hold public
+material only.
+
+```text
+POST /operator/relay-certificates/v1
+Authorization: Bearer <REMOTE_AGENT_OPERATOR_BEARER_TOKEN>
+
+{"csr_pem": "<PEM-encoded certificate signing request>"}
+```
+
+The signer refuses a CSR unless it is exactly one `IP:` SAN matching
+`REMOTE_AGENT_RELAY_IP`, carries `CA=FALSE` and `serverAuth`, has no
+`clientAuth`, and uses a key at least 2048-bit RSA or 256-bit EC. Issued leaves
+are capped at 397 days. The Business MCP Hub exposes the same operation as
+`POST /admin/api/remote-agent/relay-certificates` for the renewal runner.
+
+`scripts/renew_relay_certificate.py` is that runner. It generates the leaf key
+and CSR on the relay host, requests a certificate, verifies the answer against
+the published CA, backs up the current pair, swaps atomically, reloads nginx,
+and re-checks the live handshake. It restores the backup if anything after the
+swap fails. Run it from cron; it does nothing until the leaf is inside
+`--renew-before-days`.
 
 Two guards keep the separation honest:
 

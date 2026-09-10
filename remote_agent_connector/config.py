@@ -121,6 +121,11 @@ class RemoteAgentConfig:
     # Optional public CA artifact used only by the operator publication route.
     # It is never loaded as a trust anchor by the connector.
     public_ca_cert_path: str | None = None
+    # Optional CA issuance material. When unset, CA publication still works but
+    # certificate signing is unavailable; there is no implicit key material.
+    ca_private_key_path: str | None = None
+    relay_ip: str = "10.21.4.101"
+    relay_certificate_validity_days: int = 90
 
     @property
     def instance_stale_seconds(self) -> int:
@@ -197,6 +202,14 @@ class RemoteAgentConfig:
             "REMOTE_AGENT_PUBLIC_CA_CERT_PATH",
             "",
         ).strip() or None
+        ca_private_key_path = os.getenv(
+            "REMOTE_AGENT_CA_PRIVATE_KEY_PATH",
+            "",
+        ).strip() or None
+        relay_ip = os.getenv("REMOTE_AGENT_RELAY_IP", "10.21.4.101").strip()
+        relay_certificate_validity_days = int(
+            os.getenv("REMOTE_AGENT_RELAY_CERT_VALIDITY_DAYS", "90")
+        )
         mcp_bearer_token = _required_secret(
             "REMOTE_AGENT_MCP_BEARER_TOKEN"
         )
@@ -246,4 +259,9 @@ class RemoteAgentConfig:
             ),
             relay_handshake_timeout_seconds=handshake_timeout,
             public_ca_cert_path=public_ca_cert_path,
+            ca_private_key_path=ca_private_key_path,
+            relay_ip=relay_ip,
+            relay_certificate_validity_days=(
+                relay_certificate_validity_days
+            ),
         )

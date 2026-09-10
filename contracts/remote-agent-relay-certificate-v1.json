@@ -1,0 +1,49 @@
+{
+  "contract": "business-mcp-remote-agent-relay-certificate-v1",
+  "version": 1,
+  "request": {
+    "required": ["csr_pem"],
+    "additional_properties": false,
+    "authentication": "operator bearer"
+  },
+  "response": {
+    "required": [
+      "contract",
+      "relay_ip",
+      "validity_days",
+      "ca_sha256_fingerprint",
+      "basic_constraints_ca",
+      "server_auth",
+      "certificate_pem",
+      "sha256_fingerprint",
+      "subject",
+      "issuer",
+      "not_before",
+      "not_after"
+    ],
+    "certificate_requirements": {
+      "basic_constraints_ca": false,
+      "server_auth": true,
+      "subject_alt_name_ip": "10.21.4.101",
+      "minimum_rsa_bits": 2048,
+      "minimum_ec_bits": 256
+    },
+    "maximum_validity_days": 397
+  },
+  "error_codes": [
+    "relay_ca_signer_unconfigured",
+    "relay_ca_signer_unavailable",
+    "relay_ca_signer_invalid",
+    "relay_csr_invalid",
+    "relay_certificate_target_invalid",
+    "relay_certificate_validity_invalid",
+    "relay_certificate_signing_failed",
+    "relay_certificate_request_invalid",
+    "unauthorized"
+  ],
+  "security": {
+    "csr_private_key_never_sent": true,
+    "ca_private_key_never_returned": true,
+    "certificate_only_response": true
+  }
+}

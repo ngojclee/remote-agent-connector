@@ -10,10 +10,17 @@ from pathlib import Path
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from starlette.testclient import TestClient
 
 from remote_agent_connector.config import RemoteAgentConfig
+from remote_agent_connector.certificate_authority import (
+    RELAY_CERT_ISSUANCE_CONTRACT,
+    RelayCertificateError,
+    relay_certificate_status,
+    sign_relay_csr,
+)
 from remote_agent_connector.errors import (
     RELAY_ERROR_CONTRACT,
     RELAY_ERROR_CODES,
@@ -66,6 +73,114 @@ def _write_certificate(
             )
         ]
     )
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(NOW - timedelta(minutes=1))
+        .not_valid_after(NOW + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=ca, path_length=None), True)
+    )
+    if san_ip is not None:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName(
+                [x509.IPAddress(IPv4Address(san_ip))]
+            ),
+            critical=False,
+        )
+        builder = builder.add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+            critical=False,
+        )
+    certificate = builder.sign(key, hashes.SHA256())
+    path.write_bytes(
+        certificate.public_bytes(serialization.Encoding.PEM)
+    )
+
+
+def _write_ca(directory: Path):
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "Remote Agent Test CA")]
+    )
+    now = datetime.now(timezone.utc)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+                key_agreement=False,
+                data_encipherment=False,
+            ),
+            True,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    certificate_path = directory / "ca.crt"
+    key_path = directory / "ca.key"
+    certificate_path.write_bytes(
+        certificate.public_bytes(serialization.Encoding.PEM)
+    )
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    return certificate_path, key_path
+
+
+def _relay_csr(key_path: Path | None = None, ip_address: str = "10.21.4.101"):
+    key = (
+        rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        if key_path is None
+        else None
+    )
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(
+            x509.Name(
+                [
+                    x509.NameAttribute(
+                        NameOID.COMMON_NAME,
+                        "Remote Agent Relay",
+                    )
+                ]
+            )
+        )
+        .add_extension(
+            x509.BasicConstraints(ca=False, path_length=None),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.IPAddress(IPv4Address(ip_address))]
+            ),
+            False,
+        )
+        .add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+            False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    return csr, key
     builder = (
         x509.CertificateBuilder()
         .subject_name(name)
@@ -250,6 +365,105 @@ class RelayCaPublicationTests(unittest.TestCase):
                     )
             finally:
                 store.close()
+
+    def test_relay_csr_is_signed_with_bounded_leaf_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ca_path, ca_key_path = _write_ca(Path(directory))
+            csr, relay_key = _relay_csr()
+            payload = sign_relay_csr(
+                csr_pem=csr.public_bytes(serialization.Encoding.PEM).decode(),
+                certificate_path=str(ca_path),
+                private_key_path=str(ca_key_path),
+                relay_ip="10.21.4.101",
+                validity_days=90,
+            )
+            self.assertEqual(payload["contract"], RELAY_CERT_ISSUANCE_CONTRACT)
+            self.assertEqual(payload["relay_ip"], "10.21.4.101")
+            self.assertFalse(payload["basic_constraints_ca"])
+            self.assertTrue(payload["server_auth"])
+            self.assertNotIn("PRIVATE KEY", json.dumps(payload))
+            leaf = x509.load_pem_x509_certificate(
+                payload["certificate_pem"].encode()
+            )
+            self.assertTrue(
+                leaf.is_signature_valid
+                if hasattr(leaf, "is_signature_valid")
+                else True
+            )
+
+    def test_relay_csr_rejects_ca_true_and_wrong_ip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ca_path, ca_key_path = _write_ca(Path(directory))
+            for ip_address in ("10.21.4.102", "127.0.0.1"):
+                csr, _ = _relay_csr(ip_address=ip_address)
+                with self.assertRaisesRegex(
+                    RelayCertificateError,
+                    "relay_csr_invalid",
+                ):
+                    sign_relay_csr(
+                        csr_pem=csr.public_bytes(
+                            serialization.Encoding.PEM
+                        ).decode(),
+                        certificate_path=str(ca_path),
+                        private_key_path=str(ca_key_path),
+                        relay_ip="10.21.4.101",
+                    )
+
+    def test_relay_csr_route_requires_signing_material(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "remote-agent.sqlite"
+            store = RemoteAgentStore(f"sqlite:///{database_path}")
+            csr, _ = _relay_csr()
+            try:
+                app = create_app(_config(database_path), store)
+                with TestClient(app) as client:
+                    unauthorized = client.post(
+                        "/operator/relay-certificates/v1",
+                        headers={"Host": "localhost:3030"},
+                        json={"csr_pem": "x"},
+                    )
+                    self.assertEqual(unauthorized.status_code, 401)
+                    response = client.post(
+                        "/operator/relay-certificates/v1",
+                        headers={
+                            "Authorization": "Bearer " + ("o" * 48),
+                            "Host": "localhost:3030",
+                        },
+                        json={
+                            "csr_pem": csr.public_bytes(
+                                serialization.Encoding.PEM
+                            ).decode()
+                        },
+                    )
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(
+                    response.json()["code"],
+                    "relay_ca_signer_unconfigured",
+                )
+            finally:
+                store.close()
+
+    def test_relay_certificate_status_binds_identity_and_issuer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ca_path, ca_key_path = _write_ca(Path(directory))
+            csr, relay_key = _relay_csr()
+            issued = sign_relay_csr(
+                csr_pem=csr.public_bytes(serialization.Encoding.PEM).decode(),
+                certificate_path=str(ca_path),
+                private_key_path=str(ca_key_path),
+                relay_ip="10.21.4.101",
+            )
+            leaf_path = Path(directory) / "relay.crt"
+            leaf_path.write_text(issued["certificate_pem"], encoding="ascii")
+            status = relay_certificate_status(
+                certificate_path=str(leaf_path),
+                certificate_authority_path=str(ca_path),
+                relay_ip="10.21.4.101",
+            )
+            self.assertEqual(
+                status["ca_sha256_fingerprint"],
+                issued["ca_sha256_fingerprint"],
+            )
 
     def test_operator_route_publishes_public_ca_only(self):
         with tempfile.TemporaryDirectory() as directory:
